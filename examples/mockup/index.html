@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Malo Clinic - Control Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* A very light grey, almost white */
+        }
+        .nav-link.active {
+            background-color: #ecfeff; /* cyan-50 */
+            color: #0891b2; /* cyan-600 */
+        }
+        .page { display: none; }
+        .page.active { display: flex; } /* Use flex for consistent layout */
+    </style>
+</head>
+<body class="bg-slate-50">
+
+    <div class="flex h-screen bg-slate-50">
+        <!-- Vertical Sidebar -->
+        <aside class="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0">
+            <!-- Logo and Title -->
+            <div class="h-16 flex items-center justify-start px-6 border-b border-slate-200 space-x-4">
+                <!-- === LOGO PLACEHOLDER === -->
+                <img class="h-8 w-auto" src="logo.png" alt="Malo Clinic Logo">
+                <h1 class="text-xl font-semibold text-slate-800">Control Center</h1>
+            </div>
+
+            <!-- Navigation Links -->
+            <nav id="sidebar-nav" class="flex-1 px-4 py-6 space-y-2">
+                <a href="#dashboard" class="nav-link flex items-center px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
+                    <i data-lucide="layout-dashboard" class="w-5 h-5 mr-3"></i>Dashboard
+                </a>
+                <a href="#agents" class="nav-link flex items-center px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
+                    <i data-lucide="bot" class="w-5 h-5 mr-3"></i>Agents
+                </a>
+                <a href="#history" class="nav-link flex items-center px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
+                    <i data-lucide="history" class="w-5 h-5 mr-3"></i>Call History
+                </a>
+                <a href="#settings" class="nav-link flex items-center px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
+                    <i data-lucide="settings" class="w-5 h-5 mr-3"></i>Settings
+                </a>
+            </nav>
+
+            <!-- User Profile -->
+            <div class="p-4 border-t border-slate-200">
+                <div class="flex items-center space-x-3">
+                     <img class="h-9 w-9 rounded-full" src="https://placehold.co/100x100/E2E8F0/4A5568?text=AS" alt="User avatar">
+                     <div>
+                        <p class="text-sm font-medium text-slate-700">Ana Sousa</p>
+                        <p class="text-xs text-slate-500">Administrator</p>
+                     </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- ======================= Dashboard Page ======================= -->
+            <main id="dashboard" class="page active flex-1 flex-col">
+                <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0">
+                    <h2 class="text-2xl font-semibold text-slate-800">Dashboard</h2>
+                </header>
+                <div class="flex-1 p-6 overflow-y-auto">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        
+                        <!-- Confirmation Statistics Card -->
+                        <div class="bg-white p-5 rounded-lg shadow-md lg:col-span-1">
+                            <div class="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
+                                <h3 class="text-lg font-semibold text-slate-800">Estatísticas de Confirmação (Hoje)</h3>
+                                <i data-lucide="calendar-check" class="w-6 h-6 text-slate-400"></i>
+                            </div>
+                            <div class="grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Pacientes a contatar:</span><span class="font-semibold text-slate-700">152</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Passaram para operador:</span><span class="font-semibold text-slate-700">5</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Confirmadas:</span><span class="font-semibold text-green-600">118</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Não atendidas:</span><span class="font-semibold text-slate-700">12</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Anuladas:</span><span class="font-semibold text-red-600">8</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Conciliadas vs Simples:</span><span class="font-semibold text-slate-700">3 vs 1</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Remarcaram:</span><span class="font-semibold text-yellow-600">9</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Tempo médio:</span><span class="font-semibold text-slate-700">1:24s</span></div>
+                            </div>
+                        </div>
+
+                        <!-- Leads Statistics Card -->
+                        <div class="bg-white p-5 rounded-lg shadow-md lg:col-span-1">
+                            <div class="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
+                                <h3 class="text-lg font-semibold text-slate-800">Estatísticas de Leads (Hoje)</h3>
+                                <i data-lucide="users" class="w-6 h-6 text-slate-400"></i>
+                            </div>
+                            <div class="grid grid-cols-2 gap-x-8 gap-y-4 text-sm">
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Contatados vs Formulários:</span><span class="font-semibold text-slate-700">45 / 50</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Agendadas:</span><span class="font-semibold text-green-600">12</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Conversão p/ consulta:</span><span class="font-semibold text-slate-700">26.6%</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Passaram para operador:</span><span class="font-semibold text-slate-700">3</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Em follow up:</span><span class="font-semibold text-yellow-600">8</span></div>
+                                <div class="flex justify-between border-b border-slate-100 py-2"><span class="text-slate-500">Tempo médio:</span><span class="font-semibold text-slate-700">2:15s</span></div>
+                            </div>
+                        </div>
+
+                        <!-- API Status and Recent Activity -->
+                        <div class="bg-white p-5 rounded-lg shadow-md">
+                            <div class="flex items-center justify-between"><h3 class="text-base font-semibold text-slate-700">API Status</h3><i data-lucide="globe" class="w-6 h-6 text-slate-400"></i></div>
+                            <div class="mt-4 space-y-3"><div class="flex items-center justify-between"><span class="text-sm text-slate-600">Glintt API</span><span class="flex items-center text-sm font-medium text-green-600"><svg class="w-2.5 h-2.5 mr-2 fill-current" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>Operational</span></div><div class="flex items-center justify-between"><span class="text-sm text-slate-600">Zoho CRM</span><span class="flex items-center text-sm font-medium text-yellow-600"><svg class="w-2.5 h-2.5 mr-2 fill-current" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>Slow Response</span></div><div class="flex items-center justify-between"><span class="text-sm text-slate-600">ElevenLabs API</span><span class="flex items-center text-sm font-medium text-green-600"><svg class="w-2.5 h-2.5 mr-2 fill-current" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4"/></svg>Operational</span></div></div>
+                        </div>
+                        <div class="bg-white p-5 rounded-lg shadow-md">
+                            <h3 class="text-base font-semibold text-slate-700">Recent Activity</h3>
+                            <div class="mt-4 flow-root"><ul role="list" class="-mb-4"><li><div class="relative pb-4"><span class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-200" aria-hidden="true"></span><div class="relative flex items-start space-x-3"><div><span class="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center ring-8 ring-white"><i data-lucide="check" class="h-5 w-5 text-white"></i></span></div><div class="min-w-0 flex-1 pt-1.5"><p class="text-sm text-slate-500">Confirmed appointment with <span class="font-medium text-slate-900">#P5821</span></p><p class="mt-1 text-xs text-slate-400">3:15 PM</p></div></div></div></li><li><div class="relative pb-4"><span class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-200" aria-hidden="true"></span><div class="relative flex items-start space-x-3"><div><span class="h-8 w-8 rounded-full bg-yellow-500 flex items-center justify-center ring-8 ring-white"><i data-lucide="arrow-right-left" class="h-5 w-5 text-white"></i></span></div><div class="min-w-0 flex-1 pt-1.5"><p class="text-sm text-slate-500">Human Handoff triggered for <span class="font-medium text-slate-900">#P5819</span></p><p class="mt-1 text-xs text-slate-400">3:11 PM</p></div></div></div></li><li><div class="relative"><div class="relative flex items-start space-x-3"><div><span class="h-8 w-8 rounded-full bg-cyan-500 flex items-center justify-center ring-8 ring-white"><i data-lucide="star" class="h-5 w-5 text-white"></i></span></div><div class="min-w-0 flex-1 pt-1.5"><p class="text-sm text-slate-500">Appointment <span class="font-medium text-slate-900">BOOKED</span> for lead <span class="font-medium text-slate-900">#L9910</span></p><p class="mt-1 text-xs text-slate-400">3:05 PM</p></div></div></div></li></ul></div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- ======================= Agents Page ======================= -->
+            <main id="agents" class="page flex-1 flex-col">
+                <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0"><h2 class="text-2xl font-semibold text-slate-800">Agents</h2></header>
+                <div class="flex-1 p-6 overflow-y-auto">
+                    <div class="bg-white p-5 rounded-lg shadow-md">
+                        <div class="border-b border-slate-200"><nav class="-mb-px flex space-x-8" aria-label="Tabs"><a href="#" class="border-cyan-500 text-cyan-600 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">Confirmation Agent</a><a href="#" class="border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">Leads Agent</a></nav></div>
+                        <div class="mt-6">
+                            <div class="flex items-center justify-between mb-4"><div class="flex items-center space-x-4"><span class="text-sm font-medium text-slate-700">Automation Status:</span><span class="inline-flex items-center px-3 py-0.5 rounded-full text-sm font-medium bg-green-100 text-green-800">Active</span></div><button class="flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-cyan-500 hover:bg-cyan-600"><i data-lucide="phone-forwarded" class="w-5 h-5 mr-2"></i>Call All Pending (5)</button></div>
+                            <table class="min-w-full divide-y divide-slate-200"><thead class="bg-slate-50"><tr><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Patient Name / ID</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Appointment</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th><th scope="col" class="relative px-6 py-3"><span class="sr-only">Actions</span></th></tr></thead><tbody class="bg-white divide-y divide-slate-200"><tr><td class="px-6 py-4 whitespace-nowrap"><div class="text-sm font-medium text-slate-900">Sofia Carvalho</div><div class="text-sm text-slate-500">#P5821</div></td><td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-slate-900">August 2, 2025</div><div class="text-sm text-slate-500">11:00 AM</div></td><td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-slate-100 text-slate-800">Pending</span></td><td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"><button class="text-cyan-600 hover:text-cyan-900">Call Now</button></td></tr><tr><td class="px-6 py-4 whitespace-nowrap"><div class="text-sm font-medium text-slate-900">João Martins</div><div class="text-sm text-slate-500">#P5822</div></td><td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-slate-900">August 2, 2025</div><div class="text-sm text-slate-500">11:30 AM</div></td><td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-slate-100 text-slate-800">Pending</span></td><td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"><button class="text-cyan-600 hover:text-cyan-900">Call Now</button></td></tr><tr><td class="px-6 py-4 whitespace-nowrap"><div class="text-sm font-medium text-slate-900">Beatriz Costa</div><div class="text-sm text-slate-500">#P5824</div></td><td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-slate-900">August 2, 2025</div><div class="text-sm text-slate-500">02:00 PM</div></td><td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">Failed</span></td><td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"><button class="text-cyan-600 hover:text-cyan-900">Retry Call</button></td></tr><tr><td class="px-6 py-4 whitespace-nowrap"><div class="text-sm font-medium text-slate-900">Rui Almeida</div><div class="text-sm text-slate-500">#P5825</div></td><td class="px-6 py-4 whitespace-nowrap"><div class="text-sm text-slate-900">August 3, 2025</div><div class="text-sm text-slate-500">09:00 AM</div></td><td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-slate-100 text-slate-800">Pending</span></td><td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"><button class="text-cyan-600 hover:text-cyan-900">Call Now</button></td></tr></tbody></table>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- ======================= Call History Page ======================= -->
+            <main id="history" class="page flex-1 flex-col">
+                <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0"><h2 class="text-2xl font-semibold text-slate-800">Call History</h2></header>
+                <div class="flex-1 p-6 overflow-y-auto">
+                    <div class="bg-white p-5 rounded-lg shadow-md">
+                        <div class="flex items-center space-x-4 mb-4"><input type="text" placeholder="Search by ID or Phone..." class="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-cyan-500 focus:border-cyan-500 sm:text-sm"></div>
+                        <table class="min-w-full divide-y divide-slate-200"><thead class="bg-slate-50"><tr><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Timestamp</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Agent</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">ID</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Outcome</th><th scope="col" class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Duration</th><th scope="col" class="relative px-6 py-3"><span class="sr-only">Details</span></th></tr></thead><tbody class="bg-white divide-y divide-slate-200"><tr><td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">July 31, 3:15 PM</td><td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">Confirm</td><td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">#P5821</td><td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">Confirmed</span></td><td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">0:45</td><td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"><a href="#details" data-call-id="P5821" class="details-link text-cyan-600 hover:text-cyan-900">Details</a></td></tr><tr><td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">July 31, 3:11 PM</td><td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">Confirm</td><td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">#P5819</td><td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">Handoff</span></td><td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">1:12</td><td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"><a href="#details" data-call-id="P5819" class="details-link text-cyan-600 hover:text-cyan-900">Details</a></td></tr><tr><td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">July 31, 3:05 PM</td><td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">Lead</td><td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">#L9910</td><td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-cyan-100 text-cyan-800">Booked</span></td><td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">2:31</td><td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"><a href="#details" data-call-id="L9910" class="details-link text-cyan-600 hover:text-cyan-900">Details</a></td></tr></tbody></table>
+                    </div>
+                </div>
+            </main>
+
+            <!-- ======================= Call Details Page ======================= -->
+            <main id="details" class="page flex-1 flex-col">
+                <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0">
+                    <h2 class="text-2xl font-semibold text-slate-800">Call Analysis: <span id="details-call-id"></span></h2>
+                    <button id="back-to-history" class="flex items-center text-sm font-medium text-slate-600 hover:text-slate-900"><i data-lucide="arrow-left" class="w-4 h-4 mr-2"></i>Back to List</button>
+                </header>
+                <div class="flex-1 p-6 overflow-y-auto">
+                    <div class="bg-white p-5 rounded-lg shadow-md">
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div class="lg:col-span-2 space-y-6"><div class="bg-white"><h3 class="text-base font-semibold text-slate-700 mb-4">Transcript</h3><div class="space-y-4"><div class="flex items-start gap-3"><span class="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 text-white flex items-center justify-center text-xs font-bold">AI</span><div class="bg-slate-100 p-3 rounded-lg rounded-tl-none"><p class="text-sm text-slate-800">Olá, ligo da Malo Clinic para confirmar a sua consulta amanhã, dia 1 de Agosto, às 11:00. Pode confirmar a sua presença?</p></div></div><div class="flex items-start gap-3 flex-row-reverse"><span class="flex-shrink-0 w-8 h-8 rounded-full bg-cyan-500 text-white flex items-center justify-center text-xs font-bold">HU</span><div class="bg-cyan-50 p-3 rounded-lg rounded-tr-none"><p class="text-sm text-cyan-900">Sim, confirmo.</p></div></div><div class="flex items-start gap-3"><span class="flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 text-white flex items-center justify-center text-xs font-bold">AI</span><div class="bg-slate-100 p-3 rounded-lg rounded-tl-none"><p class="text-sm text-slate-800">Obrigado. A sua consulta está confirmada. Tenha um ótimo dia.</p></div></div></div></div></div>
+                            <div class="space-y-6"><div class="bg-white border border-slate-200 p-5 rounded-lg"><h3 class="text-base font-semibold text-slate-700 mb-4">Call Summary</h3><div class="space-y-2 text-sm"><div class="flex justify-between"><span>Date:</span><span class="font-medium text-slate-800">July 31, 3:15 PM</span></div><div class="flex justify-between"><span>Duration:</span><span class="font-medium text-slate-800">45s</span></div><div class="flex justify-between"><span>Cost:</span><span class="font-medium text-slate-800">$0.12</span></div></div></div><div class="bg-white border border-slate-200 p-5 rounded-lg"><h3 class="text-base font-semibold text-slate-700 mb-4">AI Analysis</h3><div class="space-y-2 text-sm"><div class="flex justify-between"><span>Intent:</span><span class="font-medium text-slate-800">confirm_appointment</span></div><div class="flex justify-between"><span>Sentiment:</span><span class="font-medium text-green-600">Positive</span></div></div></div><div class="bg-white border border-slate-200 p-5 rounded-lg"><h3 class="text-base font-semibold text-slate-700 mb-4">Recording</h3><audio controls class="w-full"></audio></div></div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+            
+            <!-- ======================= Settings Page (Placeholder) ======================= -->
+            <main id="settings" class="page flex-1 flex-col">
+                <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0"><h2 class="text-2xl font-semibold text-slate-800">Settings</h2></header>
+                <div class="flex-1 p-6">
+                    <div class="bg-white p-8 rounded-lg shadow-md text-center">
+                        <i data-lucide="settings" class="w-16 h-16 mx-auto text-slate-300"></i>
+                        <h3 class="mt-4 text-lg font-medium text-slate-800">Settings Page</h3>
+                        <p class="mt-1 text-sm text-slate-500">Agent configuration, script management, and API keys will be managed here.</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+
+            const navLinks = document.querySelectorAll('.nav-link');
+            const pages = document.querySelectorAll('.page');
+
+            function showPage(pageId) {
+                pages.forEach(page => {
+                    page.classList.remove('active');
+                });
+                navLinks.forEach(link => {
+                    link.classList.remove('active');
+                });
+
+                const targetPage = document.getElementById(pageId);
+                if (targetPage) {
+                    targetPage.classList.add('active');
+                }
+
+                const targetLink = document.querySelector(`.nav-link[href="#${pageId}"]`);
+                if (targetLink) {
+                    targetLink.classList.add('active');
+                }
+            }
+
+            document.getElementById('sidebar-nav').addEventListener('click', (e) => {
+                const navLink = e.target.closest('.nav-link');
+                if (navLink) {
+                    e.preventDefault();
+                    const pageId = navLink.getAttribute('href').substring(1);
+                    showPage(pageId);
+                }
+            });
+
+            document.getElementById('history').addEventListener('click', (e) => {
+                const detailsLink = e.target.closest('.details-link');
+                if (detailsLink) {
+                    e.preventDefault();
+                    const callId = detailsLink.dataset.callId;
+                    document.getElementById('details-call-id').textContent = callId;
+                    showPage('details');
+                    document.querySelector('.nav-link[href="#history"]').classList.add('active');
+                }
+            });
+
+            document.getElementById('back-to-history').addEventListener('click', (e) => {
+                e.preventDefault();
+                showPage('history');
+            });
+
+            showPage('dashboard');
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+    "patient": {
+      "id": "43148",
+      "type": "MC",
+      "name": "LUISA SURNAME",
+      "administrativeGender": "F",
+      "birthDate": "1950-01-01T00:00:00",
+      "fiscalNumber": "123456789",
+      "citizenCardNumber": "123456789",
+      "nationalHealthCardNumber": "123456789",
+      "europeanHealthCardNumber": null,
+      "passportNumber": null,
+      "deceased": "N",
+      "deceaseDate": null,
+      "externalId": null,
+      "lastUpdate": "2025-05-23T12:22:32",
+      "lastContextDate": "2025-07-15T10:53:29",
+      "lastContext": "Consultas/4553919"
+    },
+    "address": {
+      "streetName": "RUA EXAMPLE LOTE 4.11.01- 1º FRT",
+      "zipCode": "1990-001",
+      "city": "LISBOA",
+      "country": "1"
+    },
+    "contacts": {
+      "phoneNumber1": "900000000",
+      "phoneNumber2": "200000000",
+      "email": "example@gmail.com"
+    },
+    "filiation": {
+      "fatherName": null,
+      "motherName": null
+    }
+  }

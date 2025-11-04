@@ -1,0 +1,67 @@
+{
+    "ExternalSearchSlot": [
+      {
+        "BookingID": "15",
+        "SlotDateTime": "2025-09-03T09:00:00",
+        "ServiceCode": "835",
+        "HumanResourceCode": "1242",
+        "Office": null,
+        "FirstTime": false,
+        "Occupation": false,
+        "Duration": "2025-09-01T04:00:00",
+        "BestSlot": false,
+        "ExceedFlag": "N",
+        "CritAppointment": "F",
+        "OccupationReason": {
+          "Code": "C",
+          "Description": "Slot totalmente ocupado."
+        },
+        "Rubric": null,
+        "MedicalActCode": "1"
+      },
+      {
+        "BookingID": "15",
+        "SlotDateTime": "2025-09-03T19:30:00",
+        "ServiceCode": "835",
+        "HumanResourceCode": "1242",
+        "Office": null,
+        "FirstTime": false,
+        "Occupation": false,
+        "Duration": "2025-05-01T00:15:00",
+        "BestSlot": false,
+        "ExceedFlag": "NA",
+        "CritAppointment": "F",
+        "OccupationReason": {
+          "Code": "N",
+          "Description": "Slot livre."
+        },
+        "Rubric": null,
+        "MedicalActCode": "1"
+      },
+      {
+        "BookingID": "15",
+        "SlotDateTime": "2025-09-03T19:45:00",
+        "ServiceCode": "835",
+        "HumanResourceCode": "1242",
+        "Office": null,
+        "FirstTime": false,
+        "Occupation": false,
+        "Duration": "2025-05-01T00:15:00",
+        "BestSlot": false,
+        "ExceedFlag": "NA",
+        "CritAppointment": "F",
+        "OccupationReason": {
+          "Code": "N",
+          "Description": "Slot livre."
+        },
+        "Rubric": null,
+        "MedicalActCode": "1"
+      }
+    ],
+    "ErrorDetails": {
+      "Error": null,
+      "StatusCode": null,
+      "AdditionalData": null,
+      "Details": null
+    }
+  }

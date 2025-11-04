@@ -1,0 +1,13 @@
+[{
+    "ServiceCode": "420",
+    "ServiceDescription": "Coimbra - Recall",
+    "MarcFlag": true,
+    "RegFlag": true,
+    "DischargePermission": false,
+    "InternmentResponsible": false,
+    "HumanResourceName": "DANIELA RODRIGUES",
+    "LastChangeDate": "2025-01-22T16:00:57",
+    "Valid": true,
+    "Deleted": false,
+    "HumanResourceCode": "1917"
+  }]
