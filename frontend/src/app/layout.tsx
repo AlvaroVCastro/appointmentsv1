@@ -20,9 +20,9 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning className="h-full">
       <body className="h-full overflow-hidden">
         <div className="h-full flex flex-col">
-          {children}
+            {children}
         </div>
-        <Toaster />
+            <Toaster />
       </body>
     </html>
   );

@@ -8,31 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, Clock, Phone, User, Loader2 } from 'lucide-react';
 import Loader from '@/components/ui/loader';
+import type { Slot, Appointment as GlinttAppointment } from '@/lib/glintt-api';
 
-interface Slot {
-  BookingID: string;
-  SlotDateTime: string;
-  Occupation: boolean;
-  OccupationReason: {
-    Code: string;
-    Description: string;
-  };
-  MedicalActCode: string;
-  ServiceCode: string;
-  Duration: string;
-}
-
-interface Appointment {
-  id: string;
-  patientId: string;
-  patientName?: string;
-  scheduleDate: string;
-  duration: string;
-  medicalActCode: string;
-  serviceCode: string;
-  status?: string;
-  observations?: string;
-}
+// Use the Appointment type from glintt-api, but keep a local alias for clarity
+type Appointment = GlinttAppointment;
 
 interface Patient {
   id: string;
@@ -167,8 +146,9 @@ export default function AppointmentsPage() {
       );
 
       setSchedule(sortedSchedule);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load schedule');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load schedule';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -185,8 +165,11 @@ export default function AppointmentsPage() {
       const nextWeek = new Date(today);
       nextWeek.setDate(nextWeek.getDate() + 7);
 
+      // Get doctor code from the slot or the current doctor
+      const slotDoctorCode = slot.slot.HumanResourceCode || doctorCode;
+      
       const response = await fetch(
-        `/api/glintt/appointments?startDate=${today.toISOString().split('T')[0]}&endDate=${nextWeek.toISOString().split('T')[0]}&medicalActCode=${slot.slot.MedicalActCode}&serviceCode=${slot.slot.ServiceCode}`
+        `/api/glintt/appointments?startDate=${today.toISOString().split('T')[0]}&endDate=${nextWeek.toISOString().split('T')[0]}&serviceCode=${slot.slot.ServiceCode}&doctorCode=${slotDoctorCode}`
       );
 
       if (!response.ok) {
@@ -213,8 +196,9 @@ export default function AppointmentsPage() {
       );
 
       setReplacementPatients(patientsWithDetails);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load replacement patients');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load replacement patients';
+      setError(errorMessage);
     } finally {
       setLoadingReplacements(false);
     }

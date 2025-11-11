@@ -6,14 +6,14 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
-    const medicalActCode = searchParams.get('medicalActCode');
     const serviceCode = searchParams.get('serviceCode');
+    const doctorCode = searchParams.get('doctorCode');
 
-    if (!startDate || !endDate || !medicalActCode || !serviceCode) {
+    if (!startDate || !endDate || !serviceCode || !doctorCode) {
       return NextResponse.json(
         {
           error:
-            'Missing required parameters: startDate, endDate, medicalActCode, serviceCode',
+            'Missing required parameters: startDate, endDate, serviceCode, doctorCode',
         },
         { status: 400 }
       );
@@ -22,14 +22,15 @@ export async function GET(request: NextRequest) {
     const appointments = await getFutureAppointments(
       startDate,
       endDate,
-      medicalActCode,
-      serviceCode
+      serviceCode,
+      doctorCode
     );
     return NextResponse.json({ appointments });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching appointments:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch appointments';
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch appointments' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

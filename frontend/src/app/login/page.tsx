@@ -24,7 +24,7 @@ export default function LoginPage() {
     }
   };
 
-  return (
+    return (
     <div className="h-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-4 text-center pb-8 pt-8">
@@ -48,21 +48,21 @@ export default function LoginPage() {
         </CardHeader>
         
         <CardContent className="space-y-6 pb-8">
-          <Button
+              <Button
             onClick={handleSignIn}
-            disabled={isSigningIn}
-            className="w-full h-12 bg-slate-800 hover:bg-slate-900 text-white font-medium transition-colors"
-            size="lg"
-          >
-            {isSigningIn ? (
-              <div className="flex items-center justify-center">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                A entrar...
-              </div>
-            ) : (
+              disabled={isSigningIn}
+              className="w-full h-12 bg-slate-800 hover:bg-slate-900 text-white font-medium transition-colors"
+              size="lg"
+            >
+              {isSigningIn ? (
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  A entrar...
+                </div>
+              ) : (
               'Entrar'
-            )}
-          </Button>
+              )}
+            </Button>
 
           {error && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-md">

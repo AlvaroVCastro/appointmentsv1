@@ -45,6 +45,38 @@ export interface Appointment {
   observations?: string;
 }
 
+// Raw API response type for appointments
+interface RawAppointmentResponse {
+  appointmentId?: string;
+  id?: string;
+  patientIdentifier?: {
+    id?: string;
+    name?: string;
+  };
+  patientId?: string;
+  patientName?: string;
+  appointmentHour?: string;
+  scheduleDate?: string;
+  appointmentDate?: string;
+  duration?: string;
+  performingService?: {
+    code?: string;
+  };
+  serviceCode?: string;
+  medicalAct?: {
+    code?: string;
+  };
+  medicalActCode?: string;
+  doctorCode?: string;
+  humanResourceCode?: string;
+  parentVisit?: {
+    id?: string;
+    type?: string;
+  };
+  status?: string;
+  observations?: string;
+}
+
 export interface Patient {
   id: string;
   name: string;
@@ -125,17 +157,17 @@ export async function getDoctorSchedule(
 
   let appointments: Appointment[] = [];
   if (appointmentsResponse.ok) {
-    const appointmentsData = await appointmentsResponse.json();
+    const appointmentsData = await appointmentsResponse.json() as RawAppointmentResponse[];
     // Map to our structure (filtering by doctor code is done server-side now)
-    appointments = (appointmentsData || []).map((apt: any) => ({
-      id: apt.appointmentId || apt.id,
-      patientId: apt.patientIdentifier?.id || apt.patientId,
+    appointments = (appointmentsData || []).map((apt: RawAppointmentResponse) => ({
+      id: apt.appointmentId || apt.id || '',
+      patientId: apt.patientIdentifier?.id || apt.patientId || '',
       patientName: apt.patientIdentifier?.name || apt.patientName,
-      scheduleDate: apt.appointmentHour || apt.scheduleDate || apt.appointmentDate,
+      scheduleDate: apt.appointmentHour || apt.scheduleDate || apt.appointmentDate || '',
       duration: apt.duration || '',
-      serviceCode: apt.performingService?.code || apt.serviceCode,
-      medicalActCode: apt.medicalAct?.code || apt.medicalActCode,
-      humanResourceCode: apt.doctorCode || apt.humanResourceCode,
+      serviceCode: apt.performingService?.code || apt.serviceCode || '',
+      medicalActCode: apt.medicalAct?.code || apt.medicalActCode || '',
+      humanResourceCode: apt.doctorCode || apt.humanResourceCode || '',
       episodeId: apt.parentVisit?.id,
       episodeType: apt.parentVisit?.type,
       status: apt.status,
@@ -190,8 +222,8 @@ export async function getDoctorSchedule(
 export async function getFutureAppointments(
   startDate: string,
   endDate: string,
-  medicalActCode: string,
-  serviceCode: string
+  serviceCode: string,
+  doctorCode: string
 ): Promise<Appointment[]> {
   const token = await getAuthToken();
   
@@ -202,6 +234,7 @@ export async function getFutureAppointments(
     skip: '0',
     take: '20', // Reduced to 20 - we only need 10 patients
     serviceCode, // Filter by service code
+    doctorCode, // Filter by doctor code
   });
 
   const response = await fetch(
@@ -218,18 +251,18 @@ export async function getFutureAppointments(
     throw new Error(`Failed to get appointments: ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data = await response.json() as RawAppointmentResponse[];
   
-  // Map to our structure (medical act is usually "1", filter client-side if needed)
-  return (data || []).map((apt: any) => ({
-    id: apt.appointmentId || apt.id,
-    patientId: apt.patientIdentifier?.id || apt.patientId,
+  // Map to our structure (filtering by service code and doctor code is done server-side)
+  return (data || []).map((apt: RawAppointmentResponse) => ({
+    id: apt.appointmentId || apt.id || '',
+    patientId: apt.patientIdentifier?.id || apt.patientId || '',
     patientName: apt.patientIdentifier?.name || apt.patientName,
-    scheduleDate: apt.appointmentHour || apt.scheduleDate || apt.appointmentDate,
+    scheduleDate: apt.appointmentHour || apt.scheduleDate || apt.appointmentDate || '',
     duration: apt.duration || '',
-    serviceCode: apt.performingService?.code || apt.serviceCode,
-    medicalActCode: apt.medicalAct?.code || apt.medicalActCode,
-    humanResourceCode: apt.doctorCode || apt.humanResourceCode,
+    serviceCode: apt.performingService?.code || apt.serviceCode || '',
+    medicalActCode: apt.medicalAct?.code || apt.medicalActCode || '',
+    humanResourceCode: apt.doctorCode || apt.humanResourceCode || '',
     episodeId: apt.parentVisit?.id,
     episodeType: apt.parentVisit?.type,
     status: apt.status,
