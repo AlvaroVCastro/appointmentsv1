@@ -175,8 +175,47 @@ export async function getDoctorSchedule(
     }));
   }
 
-  // Get availability slots - optimized settings
+  // Extract unique service code and medical act code combinations from appointments
+  const serviceMedicalActCombos = new Map<string, { serviceCode: string; medicalActCode: string }>();
+  
+  appointments.forEach(apt => {
+    if (apt.serviceCode && apt.medicalActCode) {
+      // Use service code as key to get unique combinations
+      const key = `${apt.serviceCode}-${apt.medicalActCode}`;
+      if (!serviceMedicalActCombos.has(key)) {
+        serviceMedicalActCombos.set(key, {
+          serviceCode: apt.serviceCode,
+          medicalActCode: apt.medicalActCode,
+        });
+      }
+    }
+  });
+
+  // Get availability slots - use service codes and medical act codes from appointments
   const slotsUrl = `${GLINTT_URL}/Glintt.HMS.CoreWebAPI/api/hms/appointment/ExternalSearchSlots`;
+  
+  // Create slot requests using actual combinations from appointments, or use defaults if none found
+  const externalMedicalActSlotsList = serviceMedicalActCombos.size > 0
+    ? Array.from(serviceMedicalActCombos.values()).map(combo => ({
+        StartDate: startDate,
+        EndDate: endDate,
+        MedicalActCode: combo.medicalActCode,
+        ServiceCode: combo.serviceCode,
+        RescheduleFlag: false,
+        HumanResourceCode: doctorCode,
+        Origin: 'MALO_ADMIN',
+      }))
+    : [
+        {
+          StartDate: startDate,
+          EndDate: endDate,
+          MedicalActCode: '1', // Default fallback
+          ServiceCode: '36', // Default fallback
+          RescheduleFlag: false,
+          HumanResourceCode: doctorCode,
+          Origin: 'MALO_ADMIN',
+        },
+      ];
   
   const slotsRequest = {
     LoadAppointments: false, // We fetch appointments separately, so no need to load here
@@ -187,17 +226,7 @@ export async function getDoctorSchedule(
     },
     Period: [],
     DaysOfWeek: [],
-    ExternalMedicalActSlotsList: [
-      {
-        StartDate: startDate,
-        EndDate: endDate,
-        MedicalActCode: '1', // Default, can be parameterized later
-        ServiceCode: '36', // Default, can be parameterized later
-        RescheduleFlag: false,
-        HumanResourceCode: doctorCode, // Already filtered by doctor
-        Origin: 'MALO_ADMIN',
-      },
-    ],
+    ExternalMedicalActSlotsList: externalMedicalActSlotsList,
   };
 
   const slotsResponse = await fetch(slotsUrl, {

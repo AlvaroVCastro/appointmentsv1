@@ -17,7 +17,7 @@ EMAIL = "teste@example.com"  # Email address
 CALLING_APP = "AUGUSTALABS"  # Calling application identifier
 
 class GlinttPatientCreator:
-    def __init__(self, base_url="http://193.126.118.174:14000"):  # Using test environment
+    def __init__(self, base_url="http://194.65.85.129:14000"):  # Using test environment
         self.base_url = base_url
         self.token = None
         self.session = requests.Session()

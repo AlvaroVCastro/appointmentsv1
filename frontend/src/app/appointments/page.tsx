@@ -93,20 +93,29 @@ export default function AppointmentsPage() {
       // Combine slots and appointments
       const scheduleMap = new Map<string, ScheduleSlot>();
       
-      // Process slots
+      // Process slots - check both Occupation and OccupationReason.Code
+      // OccupationReason.Code === "C" means "Slot totalmente ocupado" (totally occupied)
+      // OccupationReason.Code === "N" means "Slot livre" (free slot)
       (data.slots || []).forEach((slot: Slot) => {
         const dateTime = new Date(slot.SlotDateTime).toISOString();
+        const occupationReasonCode = slot.OccupationReason?.Code;
+        // Slot is occupied if Occupation is true OR OccupationReason.Code is "C"
+        const isOccupied = slot.Occupation === true || occupationReasonCode === "C";
         scheduleMap.set(dateTime, {
           dateTime,
-          isOccupied: slot.Occupation,
+          isOccupied,
           slot,
         });
       });
 
-      // Process appointments
+      // Process appointments - prioritize scheduled appointments over rescheduled/annulled
+      // First pass: Process scheduled appointments (not ANNULLED or RESCHEDULED)
       (data.appointments || []).forEach((apt: Appointment) => {
         const aptDateTime = new Date(apt.scheduleDate);
         const isAnnulledOrRescheduled = apt.status === 'ANNULLED' || apt.status === 'RESCHEDULED';
+        
+        // Skip annulled/rescheduled in first pass
+        if (isAnnulledOrRescheduled) return;
         
         // Try to match with slots that are close in time (within 30 minutes)
         let matched = false;
@@ -115,15 +124,8 @@ export default function AppointmentsPage() {
           const timeDiff = Math.abs(aptDateTime.getTime() - slotDateTime.getTime());
           // Match if within 30 minutes
           if (timeDiff < 30 * 60 * 1000) {
-            // If appointment is ANNULLED or RESCHEDULED, mark as empty slot with info
-            if (isAnnulledOrRescheduled) {
-              slot.isOccupied = false;
-              slot.appointment = apt;
-              slot.isEmptyDueToStatus = true;
-            } else {
-              slot.isOccupied = true;
-              slot.appointment = apt;
-            }
+            slot.isOccupied = true;
+            slot.appointment = apt;
             matched = true;
             break;
           }
@@ -133,9 +135,48 @@ export default function AppointmentsPage() {
         if (!matched) {
           scheduleMap.set(aptDateTime.toISOString(), {
             dateTime: aptDateTime.toISOString(),
-            isOccupied: !isAnnulledOrRescheduled, // Empty if annulled/rescheduled
+            isOccupied: true,
             appointment: apt,
-            isEmptyDueToStatus: isAnnulledOrRescheduled,
+          });
+        }
+      });
+
+      // Second pass: Process ANNULLED/RESCHEDULED appointments, but only if slot doesn't have a scheduled appointment
+      (data.appointments || []).forEach((apt: Appointment) => {
+        const aptDateTime = new Date(apt.scheduleDate);
+        const isAnnulledOrRescheduled = apt.status === 'ANNULLED' || apt.status === 'RESCHEDULED';
+        
+        // Only process annulled/rescheduled in second pass
+        if (!isAnnulledOrRescheduled) return;
+        
+        // Try to match with slots that are close in time (within 30 minutes)
+        let matched = false;
+        for (const [dateTime, slot] of scheduleMap.entries()) {
+          const slotDateTime = new Date(dateTime);
+          const timeDiff = Math.abs(aptDateTime.getTime() - slotDateTime.getTime());
+          // Match if within 30 minutes
+          if (timeDiff < 30 * 60 * 1000) {
+            // Only add if slot doesn't already have an appointment (scheduled appointments take priority)
+            if (!slot.appointment) {
+              slot.isOccupied = false;
+              slot.appointment = apt;
+              slot.isEmptyDueToStatus = true;
+              matched = true;
+              break;
+            }
+            // If slot already has a scheduled appointment, skip this annulled/rescheduled one
+            matched = true; // Mark as matched to skip standalone addition
+            break;
+          }
+        }
+        
+        // If no match found, add as a standalone appointment
+        if (!matched) {
+          scheduleMap.set(aptDateTime.toISOString(), {
+            dateTime: aptDateTime.toISOString(),
+            isOccupied: false, // Empty if annulled/rescheduled
+            appointment: apt,
+            isEmptyDueToStatus: true,
           });
         }
       });
@@ -155,7 +196,8 @@ export default function AppointmentsPage() {
   };
 
   const loadReplacementPatients = async (slot: ScheduleSlot) => {
-    if (!slot.slot) return;
+    // Need either a slot object or an appointment to get service/doctor info
+    if (!slot.slot && !slot.appointment) return;
 
     setLoadingReplacements(true);
     setSelectedSlot(slot);
@@ -165,11 +207,16 @@ export default function AppointmentsPage() {
       const nextWeek = new Date(today);
       nextWeek.setDate(nextWeek.getDate() + 7);
 
-      // Get doctor code from the slot or the current doctor
-      const slotDoctorCode = slot.slot.HumanResourceCode || doctorCode;
+      // Get service code and doctor code from slot or appointment
+      const serviceCode = slot.slot?.ServiceCode || slot.appointment?.serviceCode;
+      const slotDoctorCode = slot.slot?.HumanResourceCode || slot.appointment?.humanResourceCode || doctorCode;
+      
+      if (!serviceCode || !slotDoctorCode) {
+        throw new Error('Missing service code or doctor code');
+      }
       
       const response = await fetch(
-        `/api/glintt/appointments?startDate=${today.toISOString().split('T')[0]}&endDate=${nextWeek.toISOString().split('T')[0]}&serviceCode=${slot.slot.ServiceCode}&doctorCode=${slotDoctorCode}`
+        `/api/glintt/appointments?startDate=${today.toISOString().split('T')[0]}&endDate=${nextWeek.toISOString().split('T')[0]}&serviceCode=${serviceCode}&doctorCode=${slotDoctorCode}`
       );
 
       if (!response.ok) {
@@ -281,7 +328,7 @@ export default function AppointmentsPage() {
               <CardHeader>
                 <CardTitle>Schedule (Next 7 Days)</CardTitle>
                 <CardDescription>
-                  Click on an empty slot to find replacement patients
+                  Click on an empty - Rescheduled or Anulled slot to find replacement patients
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -401,9 +448,9 @@ export default function AppointmentsPage() {
                             )}
                           </div>
                         )}
-                        {isEmpty && slot.slot && !isEmptyDueToStatus && (
+                        {slot.slot && slot.slot.OccupationReason?.Description && (
                           <div className="mt-2 text-xs text-slate-500">
-                            {slot.slot.OccupationReason?.Description || 'Available slot'}
+                            {slot.slot.OccupationReason.Description}
                           </div>
                         )}
                       </div>

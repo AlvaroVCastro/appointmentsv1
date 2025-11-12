@@ -489,8 +489,8 @@ GET /Hms.Billing.FinancialDocuments.Api/hms/financialdocumentdetail?documentNumb
 
 ### Base URL
 Most endpoints use one of these base URLs:
-- Test Environment: `http://193.126.118.174:14000`
-- Production Environment: `http://193.126.118.174:14100`
+- Test Environment: `http://194.65.85.129:14000`
+- Production Environment: `http://194.65.85.129:14100`
 
 ### Authentication
 All authenticated requests require:
