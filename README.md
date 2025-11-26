@@ -121,6 +121,29 @@ The application integrates with the Glintt HMS API:
 
 See `examples/Glintt/` for detailed API documentation and examples.
 
+## Examples Folder
+
+The `examples/` directory contains reference code and documentation for development context. It includes:
+- **Glintt API examples**: Python scripts demonstrating how to interact with the Glintt HMS API
+- **API documentation**: Detailed endpoint documentation and usage examples
+- **Integration patterns**: Examples of authentication, scheduling, and data retrieval
+
+These examples serve as reference material for understanding the Glintt API and are not part of the deployed application.
+
+## Deployment
+
+### Vercel Deployment
+
+When deploying to Vercel:
+
+1. **Select the frontend subfolder** as the root directory in your Vercel project settings
+2. **Framework Preset**: Select "Next.js"
+3. **Build Command**: `npm run build` (default)
+4. **Output Directory**: `.next` (default)
+5. **Install Command**: `npm install` (default)
+
+The Vercel project should point to the `frontend/` directory, not the repository root.
+
 ## Architecture
 
 - **Frontend**: Next.js client components using React hooks for state management
@@ -141,8 +164,4 @@ See `examples/Glintt/` for detailed API documentation and examples.
 - Appointment history tracking
 - Multiple doctor support
 - Advanced filtering and search
-
-## License
-
-Private - Augusta Labs
 
