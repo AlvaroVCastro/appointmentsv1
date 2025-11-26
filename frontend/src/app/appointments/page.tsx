@@ -1,637 +1,145 @@
 "use client";
 
-import { useState, Fragment } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Calendar, Clock, Phone, User, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import Loader from '@/components/ui/loader';
-import type { Slot, Appointment as GlinttAppointment } from '@/lib/glintt-api';
-
-// Use the Appointment type from glintt-api, but keep a local alias for clarity
-type Appointment = GlinttAppointment;
-
-interface Patient {
-  id: string;
-  name: string;
-  contacts?: {
-    phoneNumber1?: string;
-    phoneNumber2?: string;
-  };
-}
-
-interface ScheduleSlot {
-  dateTime: string;
-  isOccupied: boolean;
-  appointment?: Appointment;
-  slot?: Slot;
-  isRescheduled?: boolean;
-  originalDate?: string;
-  isEmptyDueToStatus?: boolean; // For ANNULLED or RESCHEDULED appointments
-}
+import { useSchedule } from '@/hooks/use-schedule';
+import { useReplacementPatients } from '@/hooks/use-replacement-patients';
+import { SlotCard } from '@/components/appointments/slot-card';
+import { ReplacementPatientsList } from '@/components/appointments/replacement-patients-list';
 
 export default function AppointmentsPage() {
-  const [doctorCode, setDoctorCode] = useState('');
-  const [doctorName, setDoctorName] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [schedule, setSchedule] = useState<ScheduleSlot[]>([]);
-  const [selectedSlot, setSelectedSlot] = useState<ScheduleSlot | null>(null);
-  const [replacementPatients, setReplacementPatients] = useState<Array<Appointment & { patient?: Patient }>>([]);
-  const [loadingReplacements, setLoadingReplacements] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [expandedSlots, setExpandedSlots] = useState<Set<string>>(new Set());
+  const {
+    doctorCode,
+    setDoctorCode,
+    doctorName,
+    loading,
+    schedule,
+    error,
+    expandedSlots,
+    loadSchedule,
+    toggleSlotExpansion,
+  } = useSchedule();
 
-  const getNextDays = (days: number) => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + days);
-    return {
-      startDate: start.toISOString().split('T')[0],
-      endDate: end.toISOString().split('T')[0],
-    };
-  };
+  const {
+    selectedSlot,
+    replacementPatients,
+    loadingReplacements,
+    error: replacementError,
+    loadReplacementPatients,
+  } = useReplacementPatients(doctorCode);
 
-  const loadSchedule = async () => {
-    if (!doctorCode.trim()) {
-      setError('Please enter a doctor code');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setSelectedSlot(null);
-    setReplacementPatients([]);
-    setDoctorName(null);
-    setExpandedSlots(new Set()); // Reset expanded slots when loading new schedule
-
-    try {
-      // Load doctor name
-      try {
-        const hrResponse = await fetch(`/api/glintt/human-resources/${doctorCode}`);
-        if (hrResponse.ok) {
-          const hrData = await hrResponse.json();
-          setDoctorName(hrData.humanResource?.HumanResourceName || null);
-        }
-      } catch (err) {
-        console.error('Failed to load doctor name:', err);
-        // Continue even if doctor name fails
-      }
-
-      const { startDate, endDate } = getNextDays(7);
-      const response = await fetch(
-        `/api/glintt/schedule?doctorCode=${encodeURIComponent(doctorCode)}&startDate=${startDate}&endDate=${endDate}`
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to load schedule');
-      }
-
-      const data = await response.json();
-      
-      // Combine slots and appointments
-      const scheduleMap = new Map<string, ScheduleSlot>();
-      
-      // Process slots - check both Occupation and OccupationReason.Code
-      // OccupationReason.Code === "C" means "Slot totalmente ocupado" (totally occupied)
-      // OccupationReason.Code === "N" means "Slot livre" (free slot)
-      (data.slots || []).forEach((slot: Slot) => {
-        const dateTime = new Date(slot.SlotDateTime).toISOString();
-        const occupationReasonCode = slot.OccupationReason?.Code;
-        // Slot is occupied if Occupation is true OR OccupationReason.Code is "C"
-        const isOccupied = slot.Occupation === true || occupationReasonCode === "C";
-        scheduleMap.set(dateTime, {
-          dateTime,
-          isOccupied,
-          slot,
-        });
-      });
-
-      // Process appointments - prioritize scheduled appointments over rescheduled/annulled
-      // First pass: Process scheduled appointments (not ANNULLED or RESCHEDULED)
-      (data.appointments || []).forEach((apt: Appointment) => {
-        const aptDateTime = new Date(apt.scheduleDate);
-        const isAnnulledOrRescheduled = apt.status === 'ANNULLED' || apt.status === 'RESCHEDULED';
-        
-        // Skip annulled/rescheduled in first pass
-        if (isAnnulledOrRescheduled) return;
-        
-        // Try to match with slots that are close in time (within 30 minutes)
-        let matched = false;
-        for (const [dateTime, slot] of scheduleMap.entries()) {
-          const slotDateTime = new Date(dateTime);
-          const timeDiff = Math.abs(aptDateTime.getTime() - slotDateTime.getTime());
-          // Match if within 30 minutes
-          if (timeDiff < 30 * 60 * 1000) {
-            slot.isOccupied = true;
-            slot.appointment = apt;
-            matched = true;
-            break;
-          }
-        }
-        
-        // If no match found, add as a standalone appointment
-        if (!matched) {
-          scheduleMap.set(aptDateTime.toISOString(), {
-            dateTime: aptDateTime.toISOString(),
-            isOccupied: true,
-            appointment: apt,
-          });
-        }
-      });
-
-      // Second pass: Process ANNULLED/RESCHEDULED appointments, but only if slot doesn't have a scheduled appointment
-      (data.appointments || []).forEach((apt: Appointment) => {
-        const aptDateTime = new Date(apt.scheduleDate);
-        const isAnnulledOrRescheduled = apt.status === 'ANNULLED' || apt.status === 'RESCHEDULED';
-        
-        // Only process annulled/rescheduled in second pass
-        if (!isAnnulledOrRescheduled) return;
-        
-        // Try to match with slots that are close in time (within 30 minutes)
-        let matched = false;
-        for (const [dateTime, slot] of scheduleMap.entries()) {
-          const slotDateTime = new Date(dateTime);
-          const timeDiff = Math.abs(aptDateTime.getTime() - slotDateTime.getTime());
-          // Match if within 30 minutes
-          if (timeDiff < 30 * 60 * 1000) {
-            // Only add if slot doesn't already have an appointment (scheduled appointments take priority)
-            if (!slot.appointment) {
-              slot.isOccupied = false;
-              slot.appointment = apt;
-              slot.isEmptyDueToStatus = true;
-              matched = true;
-              break;
-            }
-            // If slot already has a scheduled appointment, skip this annulled/rescheduled one
-            matched = true; // Mark as matched to skip standalone addition
-            break;
-          }
-        }
-        
-        // If no match found, add as a standalone appointment
-        if (!matched) {
-          scheduleMap.set(aptDateTime.toISOString(), {
-            dateTime: aptDateTime.toISOString(),
-            isOccupied: false, // Empty if annulled/rescheduled
-            appointment: apt,
-            isEmptyDueToStatus: true,
-          });
-        }
-      });
-
-      // Sort by date
-      const sortedSchedule = Array.from(scheduleMap.values()).sort(
-        (a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()
-      );
-
-      setSchedule(sortedSchedule);
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load schedule';
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadReplacementPatients = async (slot: ScheduleSlot) => {
-    // Need either a slot object or an appointment to get service/doctor info
-    if (!slot.slot && !slot.appointment) return;
-
-    setLoadingReplacements(true);
-    setSelectedSlot(slot);
-
-    try {
-      const today = new Date();
-      const nextWeek = new Date(today);
-      nextWeek.setDate(nextWeek.getDate() + 7);
-
-      // Get service code and doctor code from slot or appointment
-      const serviceCode = slot.slot?.ServiceCode || slot.appointment?.serviceCode;
-      const slotDoctorCode = slot.slot?.HumanResourceCode || slot.appointment?.humanResourceCode || doctorCode;
-      
-      if (!serviceCode || !slotDoctorCode) {
-        throw new Error('Missing service code or doctor code');
-      }
-      
-      const response = await fetch(
-        `/api/glintt/appointments?startDate=${today.toISOString().split('T')[0]}&endDate=${nextWeek.toISOString().split('T')[0]}&serviceCode=${serviceCode}&doctorCode=${slotDoctorCode}`
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to load replacement appointments');
-      }
-
-      const data = await response.json();
-      const appointments = (data.appointments || []).slice(0, 10); // Limit to 10
-
-      // Load patient details for each appointment in parallel
-      const patientsWithDetails = await Promise.all(
-        appointments.map(async (apt: Appointment) => {
-          try {
-            const patientResponse = await fetch(`/api/glintt/patients/${apt.patientId}`);
-            if (patientResponse.ok) {
-              const patientData = await patientResponse.json();
-              return { ...apt, patient: patientData.patient };
-            }
-          } catch (err) {
-            console.error(`Failed to load patient ${apt.patientId}:`, err);
-          }
-          return apt;
-        })
-      );
-
-      setReplacementPatients(patientsWithDetails);
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load replacement patients';
-      setError(errorMessage);
-    } finally {
-      setLoadingReplacements(false);
-    }
-  };
-
-  const formatDateTime = (dateTime: string) => {
-    const date = new Date(dateTime);
-    return {
-      time: date.toLocaleTimeString('pt-PT', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-      date: date.toLocaleDateString('pt-PT', {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-      }),
-    };
-  };
-
-  const toggleSlotExpansion = (slotDateTime: string, event: React.MouseEvent) => {
+  const handleToggleExpansion = (slotDateTime: string, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent triggering loadReplacementPatients
-    setExpandedSlots(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(slotDateTime)) {
-        newSet.delete(slotDateTime);
-      } else {
-        newSet.add(slotDateTime);
-      }
-      return newSet;
-    });
+    toggleSlotExpansion(slotDateTime);
   };
 
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-7xl mx-auto space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {doctorName ? `Doctor: ${doctorName}` : 'Doctor Schedule Manager'}
-            </CardTitle>
-            <CardDescription>
-              {doctorName 
-                ? `View schedules and find replacement patients for empty slots`
-                : 'View doctor schedules and find replacement patients for empty slots'
-              }
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-4 items-end">
-              <div className="flex-1">
-                <Label htmlFor="doctorCode">Doctor Code</Label>
-                <Input
-                  id="doctorCode"
-                  value={doctorCode}
-                  onChange={(e) => setDoctorCode(e.target.value)}
-                  placeholder="Enter doctor code"
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      loadSchedule();
-                    }
-                  }}
-                />
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {doctorName ? `Doctor: ${doctorName}` : 'Doctor Schedule Manager'}
+              </CardTitle>
+              <CardDescription>
+                {doctorName 
+                  ? `View schedules and find replacement patients for empty slots`
+                  : 'View doctor schedules and find replacement patients for empty slots'
+                }
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-4 items-end">
+                <div className="flex-1">
+                  <Label htmlFor="doctorCode">Doctor Code</Label>
+                  <Input
+                    id="doctorCode"
+                    value={doctorCode}
+                    onChange={(e) => setDoctorCode(e.target.value)}
+                    placeholder="Enter doctor code"
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        loadSchedule();
+                      }
+                    }}
+                  />
+                </div>
+                <Button onClick={loadSchedule} disabled={loading}>
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    'Load Schedule'
+                  )}
+                </Button>
               </div>
-              <Button onClick={loadSchedule} disabled={loading}>
-                {loading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  'Load Schedule'
-                )}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {error && (
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="pt-6">
-              <p className="text-red-800">{error}</p>
             </CardContent>
           </Card>
-        )}
 
-        {loading && <Loader message="Loading schedule..." className="min-h-[400px]" />}
-
-        {!loading && schedule.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Schedule (Next 7 Days)</CardTitle>
-                <CardDescription>
-                  Click on an empty - Rescheduled or Anulled slot to find replacement patients
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2 max-h-[600px] overflow-y-auto relative">
-                  {schedule.map((slot, index) => {
-                    const { date, time } = formatDateTime(slot.dateTime);
-                    const isEmpty = !slot.isOccupied;
-                    const isSelected = selectedSlot?.dateTime === slot.dateTime;
-                    const isEmptyDueToStatus = slot.isEmptyDueToStatus && slot.appointment;
-                    const hasAppointment = slot.appointment && !isEmptyDueToStatus;
-                    const isExpanded = expandedSlots.has(slot.dateTime);
-                    // Scheduled appointments are collapsed by default
-                    const shouldShowDetails = isExpanded || isEmptyDueToStatus;
-                    
-                    // Get the date string for comparison (without time)
-                    const currentDate = new Date(slot.dateTime).toDateString();
-                    const previousDate = index > 0 
-                      ? new Date(schedule[index - 1].dateTime).toDateString()
-                      : null;
-                    const isNewDay = currentDate !== previousDate;
-                    
-                    // Format full date for separator
-                    const fullDate = new Date(slot.dateTime);
-                    const daySeparatorText = fullDate.toLocaleDateString('pt-PT', {
-                      weekday: 'long',
-                      day: 'numeric',
-                      month: 'long',
-                    });
-
-                    return (
-                      <Fragment key={slot.dateTime}>
-                        {/* Day Separator - Direct child of scrollable container */}
-                        {isNewDay && (
-                          <div className="sticky top-0 z-10 bg-slate-50 py-2 mb-2 -mx-2 px-2 border-b-2 border-slate-300 shadow-sm">
-                            <div className="flex items-center gap-2">
-                              <Calendar className="h-4 w-4 text-slate-600" />
-                              <span className="text-sm font-semibold text-slate-700 uppercase">
-                                {daySeparatorText}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Slot Card - Direct child of scrollable container */}
-                        <div
-                          className={`rounded-lg border-2 transition-all ${
-                            isEmpty ? 'cursor-pointer' : 'cursor-default'
-                          } ${
-                            isEmpty
-                              ? isSelected
-                                ? 'border-orange-500 bg-orange-50'
-                                : isEmptyDueToStatus
-                                  ? 'border-amber-300 bg-amber-50 hover:border-amber-400 hover:bg-amber-100'
-                                  : 'border-orange-300 bg-orange-50 hover:border-orange-400 hover:bg-orange-100'
-                              : hasAppointment
-                                ? 'border-slate-200 bg-slate-50'
-                                : 'border-slate-200 bg-slate-50'
-                          }`}
-                        >
-                        {/* Compact Header */}
-                        <div
-                          onClick={() => {
-                            if (isEmpty) {
-                              loadReplacementPatients(slot);
-                            }
-                          }}
-                          className="p-3 flex items-center justify-between"
-                        >
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            <Clock className={`h-4 w-4 flex-shrink-0 ${
-                              hasAppointment ? 'text-slate-400' : 
-                              isEmpty ? 'text-orange-600' : 
-                              'text-slate-500'
-                            }`} />
-                            <div className="flex items-baseline gap-2 min-w-0">
-                              <div className="flex items-baseline gap-2">
-                                <div className={`text-lg font-semibold ${
-                                  hasAppointment ? 'text-slate-600' : 
-                                  isEmpty ? 'text-orange-700' : 
-                                  'text-slate-900'
-                                }`}>{time}</div>
-                                {hasAppointment && slot.appointment?.duration && (
-                                  <div className={`text-xs ${
-                                    hasAppointment ? 'text-slate-400' : 'text-slate-500'
-                                  }`}>
-                                    ({slot.appointment.duration})
-                                  </div>
-                                )}
-                              </div>
-                              <div className={`text-xs flex items-center gap-1 ${
-                                hasAppointment ? 'text-slate-400' : 
-                                isEmpty ? 'text-orange-600' : 
-                                'text-slate-500'
-                              }`}>
-                                <Calendar className="h-3 w-3" />
-                                {date}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {isEmpty ? (
-                              isEmptyDueToStatus ? (
-                                <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 font-semibold">
-                                  {slot.appointment?.status === 'ANNULLED' ? 'Annulled' : 'Rescheduled'}
-                                </Badge>
-                              ) : (
-                                <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300 font-semibold">
-                                  Empty
-                                </Badge>
-                              )
-                            ) : hasAppointment ? (
-                              <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300">
-                                <User className="h-3 w-3 mr-1" />
-                                {slot.appointment?.patientName || 'Appointment'}
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline">Occupied</Badge>
-                            )}
-                            {/* Expand/Collapse Button */}
-                            {(hasAppointment || isEmptyDueToStatus || (slot.slot && slot.slot.OccupationReason?.Description)) && (
-                              <button
-                                onClick={(e) => toggleSlotExpansion(slot.dateTime, e)}
-                                className="p-1 hover:bg-slate-200 rounded transition-colors"
-                                aria-label={isExpanded ? 'Collapse' : 'Expand'}
-                              >
-                                {isExpanded ? (
-                                  <ChevronUp className="h-4 w-4 text-slate-600" />
-                                ) : (
-                                  <ChevronDown className="h-4 w-4 text-slate-600" />
-                                )}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {/* Expandable Details */}
-                        {shouldShowDetails && (
-                          <div className="px-3 pb-3 space-y-2">
-                            {slot.appointment && (
-                              <div className={`pt-3 border-t space-y-2 rounded p-3 ${
-                                isEmptyDueToStatus 
-                                  ? 'bg-amber-50 border-amber-200' 
-                                  : 'bg-slate-50 border-slate-200'
-                              }`}>
-                                {isEmptyDueToStatus ? (
-                                  <>
-                                    <div className="text-sm font-semibold text-amber-800 mb-2">
-                                      {slot.appointment.status === 'ANNULLED' ? 'Annulled Appointment' : 'Rescheduled Appointment'}
-                                    </div>
-                                    <div className="text-sm text-amber-700">
-                                      <span className="font-medium">Patient:</span> {slot.appointment.patientName || 'N/A'}
-                                    </div>
-                                    <div className="text-xs text-amber-600 flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                                      <div>
-                                        <span className="font-medium">ID:</span> {slot.appointment.patientId}
-                                      </div>
-                                      {slot.appointment.serviceCode && (
-                                        <div>
-                                          <span className="font-medium">Service:</span> {slot.appointment.serviceCode}
-                                        </div>
-                                      )}
-                                      {slot.appointment.medicalActCode && (
-                                        <div>
-                                          <span className="font-medium">Act:</span> {slot.appointment.medicalActCode}
-                                        </div>
-                                      )}
-                                    </div>
-                                    {slot.appointment.observations && (
-                                      <div className="text-xs text-amber-600 mt-2 italic">
-                                        {slot.appointment.observations}
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <>
-                                    <div className="text-sm font-semibold text-slate-600 mb-2">
-                                      Appointment Details
-                                    </div>
-                                    <div className="text-sm text-slate-600">
-                                      <span className="font-medium">Patient:</span> {slot.appointment.patientName || 'N/A'}
-                                    </div>
-                                    <div className="text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                                      <div>
-                                        <span className="font-medium">ID:</span> {slot.appointment.patientId}
-                                      </div>
-                                      {slot.appointment.serviceCode && (
-                                        <div>
-                                          <span className="font-medium">Service:</span> {slot.appointment.serviceCode}
-                                        </div>
-                                      )}
-                                      {slot.appointment.medicalActCode && (
-                                        <div>
-                                          <span className="font-medium">Act:</span> {slot.appointment.medicalActCode}
-                                        </div>
-                                      )}
-                                      {slot.appointment.duration && (
-                                        <div>
-                                          <span className="font-medium">Duration:</span> {slot.appointment.duration}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            )}
-                            {slot.slot && slot.slot.OccupationReason?.Description && (
-                              <div className="text-xs text-slate-500">
-                                {slot.slot.OccupationReason.Description}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        </div>
-                      </Fragment>
-                    );
-                  })}
-                </div>
+          {(error || replacementError) && (
+            <Card className="border-red-200 bg-red-50">
+              <CardContent className="pt-6">
+                <p className="text-red-800">{error || replacementError}</p>
               </CardContent>
             </Card>
+          )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Replacement Patients</CardTitle>
-                <CardDescription>
-                  {selectedSlot
-                    ? 'Patients with future appointments of the same type'
-                    : 'Select an empty slot to see potential replacements'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {loadingReplacements ? (
-                  <Loader message="Loading patients..." />
-                ) : selectedSlot && replacementPatients.length > 0 ? (
-                  <div className="space-y-4 max-h-[600px] overflow-y-auto">
-                    {replacementPatients.map((apt) => {
-                      const { date, time } = formatDateTime(apt.scheduleDate);
-                      return (
-                        <div
-                          key={apt.id}
-                          className="p-4 border border-slate-200 rounded-lg bg-white"
-                        >
-                          <div className="flex items-start justify-between mb-2">
-                            <div>
-                              <div className="font-medium">
-                                {apt.patient?.name || apt.patientName || 'Unknown Patient'}
-                              </div>
-                              <div className="text-sm text-slate-500 mt-1">
-                                Current Appointment: {date} at {time}
-                              </div>
-                            </div>
-                            <Badge variant="outline">ID: {apt.patientId}</Badge>
-                          </div>
-                          {apt.patient?.contacts && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {apt.patient.contacts.phoneNumber1 && (
-                                <div className="flex items-center gap-1 text-sm text-slate-600">
-                                  <Phone className="h-3 w-3" />
-                                  {apt.patient.contacts.phoneNumber1}
-                                </div>
-                              )}
-                              {apt.patient.contacts.phoneNumber2 && (
-                                <div className="flex items-center gap-1 text-sm text-slate-600">
-                                  <Phone className="h-3 w-3" />
-                                  {apt.patient.contacts.phoneNumber2}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+          {loading && <Loader message="Loading schedule..." className="min-h-[400px]" />}
+
+          {!loading && schedule.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Schedule (Next 7 Days)</CardTitle>
+                  <CardDescription>
+                    Click on an empty - Rescheduled or Anulled slot to find replacement patients
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 max-h-[600px] overflow-y-auto relative">
+                    {schedule.map((slot, index) => (
+                      <SlotCard
+                        key={slot.dateTime}
+                        slot={slot}
+                        previousSlotDateTime={index > 0 ? schedule[index - 1].dateTime : undefined}
+                        isSelected={selectedSlot?.dateTime === slot.dateTime}
+                        isExpanded={expandedSlots.has(slot.dateTime)}
+                        onSelect={loadReplacementPatients}
+                        onToggleExpand={handleToggleExpansion}
+                      />
+                    ))}
                   </div>
-                ) : selectedSlot && !loadingReplacements ? (
-                  <div className="text-center py-8 text-slate-500">
-                    No replacement patients found
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-slate-400">
-                    Select an empty slot to view potential replacements
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-      </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Replacement Patients</CardTitle>
+                  <CardDescription>
+                    {selectedSlot
+                      ? 'Patients with future appointments of the same type'
+                      : 'Select an empty slot to see potential replacements'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ReplacementPatientsList
+                    patients={replacementPatients}
+                    loading={loadingReplacements}
+                    hasSelection={!!selectedSlot}
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
