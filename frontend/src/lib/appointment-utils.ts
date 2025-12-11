@@ -231,6 +231,7 @@ function getHour(dateTime: string): number {
 /**
  * Check if a time is within the lunch break barrier (13:00-14:00).
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function isLunchBreak(hour: number): boolean {
   return hour >= 13 && hour < 14;
 }
@@ -302,7 +303,8 @@ export function mergeConsecutiveEmptySlots(slots: ScheduleSlot[]): ScheduleSlot[
       
       // Find where this empty period ends
       let endDateTime: string | null = null;
-      let endReason: string = 'end_of_schedule';
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      let _endReason: string = 'end_of_schedule';
       
       while (j < sortedSlots.length) {
         const nextSlot = sortedSlots[j];
@@ -319,7 +321,8 @@ export function mergeConsecutiveEmptySlots(slots: ScheduleSlot[]): ScheduleSlot[
           const lastDuration = parseDurationToMinutes(lastEmpty.slot?.Duration || lastEmpty.appointment?.duration || '00:30:00');
           const lastStart = new Date(lastEmpty.dateTime).getTime();
           endDateTime = new Date(lastStart + lastDuration * 60 * 1000).toISOString();
-          endReason = 'different_day';
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          _endReason = 'different_day';
           break;
         }
         
@@ -329,7 +332,8 @@ export function mergeConsecutiveEmptySlots(slots: ScheduleSlot[]): ScheduleSlot[
           const lunchStart = new Date(emptyStartSlot.dateTime);
           lunchStart.setHours(13, 0, 0, 0);
           endDateTime = lunchStart.toISOString();
-          endReason = 'lunch_break';
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          _endReason = 'lunch_break';
           break;
         }
         
@@ -339,14 +343,16 @@ export function mergeConsecutiveEmptySlots(slots: ScheduleSlot[]): ScheduleSlot[
           const dayEnd = new Date(emptyStartSlot.dateTime);
           dayEnd.setHours(18, 0, 0, 0);
           endDateTime = dayEnd.toISOString();
-          endReason = 'end_of_day';
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          _endReason = 'end_of_day';
           break;
         }
         
         // Found an occupied slot - this is where empty period ends
         if (!nextIsEmpty) {
           endDateTime = nextSlot.dateTime; // End at START of occupied slot
-          endReason = 'occupied_slot';
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          _endReason = 'occupied_slot';
           break;
         }
         

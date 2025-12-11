@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,15 +12,36 @@ import { useSchedule } from '@/hooks/use-schedule';
 import { useReplacementPatients } from '@/hooks/use-replacement-patients';
 import { ReplacementPatientsList } from '@/components/appointments/replacement-patients-list';
 import { DoctorSelector } from '@/components/appointments/doctor-selector';
-import { getFreeSlotsInboxItems, formatFullDate } from '@/lib/appointment-utils';
+import { formatFullDate, isEmptySlot, formatDateKey, parseDurationToMinutes } from '@/lib/appointment-utils';
 import type { DoctorSearchResult } from '@/lib/glintt-api';
-import type { FreeSlotInboxItem } from '@/lib/appointment-utils';
+import type { ScheduleSlot } from '@/lib/appointment-utils';
 import { Clock, Calendar } from 'lucide-react';
 import React from 'react';
 
 type FreeSlotSortOption = 'largest-gap' | 'soonest-date';
 
+// Local type for free slot inbox items (demo purposes)
+interface FreeSlotInboxItem {
+  id: string;
+  dateKey: string;
+  start: Date;
+  end: Date;
+  durationMinutes: number;
+  previousGapMinutes: number;
+  slot: ScheduleSlot;
+}
+
+// Main page component with Suspense wrapper for useSearchParams
 export default function FreeSlotsPage() {
+  return (
+    <Suspense fallback={<Loader message="Loading..." className="min-h-[400px]" />}>
+      <FreeSlotsContent />
+    </Suspense>
+  );
+}
+
+// Inner content component that uses useSearchParams
+function FreeSlotsContent() {
   const searchParams = useSearchParams();
   const initialDoctorCode = searchParams.get('doctorCode');
   const initialDoctorName = searchParams.get('doctorName');
@@ -43,7 +64,7 @@ export default function FreeSlotsPage() {
 
   const {
     selectedSlot,
-    replacementPatients,
+    replacementCandidates,
     loadingReplacements,
     error: replacementError,
     loadReplacementPatients,
@@ -51,10 +72,41 @@ export default function FreeSlotsPage() {
 
   const [sortOption, setSortOption] = useState<FreeSlotSortOption>('largest-gap');
 
-  // Get free slots inbox items
-  const freeSlotsItems = useMemo(() => {
+  // Get free slots inbox items - inline computation for demo
+  const freeSlotsItems = useMemo((): FreeSlotInboxItem[] => {
     if (!schedule || schedule.length === 0) return [];
-    return getFreeSlotsInboxItems(schedule, { days: 10 });
+    
+    // Filter to get empty slots (including annulled/rescheduled)
+    const freeSlots = schedule.filter(slot => isEmptySlot(slot));
+    
+    // Map to inbox items
+    const items: FreeSlotInboxItem[] = freeSlots.map((slot, index) => {
+      const start = new Date(slot.dateTime);
+      const durationMinutes = slot.durationMinutes ?? parseDurationToMinutes(slot.slot?.Duration || '00:30:00');
+      const end = new Date(start.getTime() + durationMinutes * 60000);
+      
+      // Calculate gap from previous slot (simplified - just use slot index difference * 30 min as rough estimate)
+      // For a real implementation, we'd calculate actual time gaps
+      let previousGapMinutes = durationMinutes; // Default to slot duration as "gap"
+      if (index > 0) {
+        const prevSlot = freeSlots[index - 1];
+        const prevEnd = new Date(prevSlot.dateTime).getTime() + (prevSlot.durationMinutes ?? 30) * 60000;
+        const gap = (start.getTime() - prevEnd) / 60000;
+        previousGapMinutes = Math.max(0, gap);
+      }
+      
+      return {
+        id: slot.dateTime,
+        dateKey: formatDateKey(start),
+        start,
+        end,
+        durationMinutes,
+        previousGapMinutes,
+        slot,
+      };
+    });
+    
+    return items;
   }, [schedule]);
 
   // Sort free slots based on selected option
@@ -240,7 +292,7 @@ export default function FreeSlotsPage() {
                   </CardHeader>
                   <CardContent>
                     <ReplacementPatientsList
-                      patients={replacementPatients}
+                      candidates={replacementCandidates}
                       loading={loadingReplacements}
                       hasSelection={!!selectedSlot}
                     />

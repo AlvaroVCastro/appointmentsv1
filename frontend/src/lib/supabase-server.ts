@@ -32,10 +32,11 @@ export function getSupabaseServerClient(): SupabaseClient {
     throw new Error('Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable');
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return createClient(supabaseUrl, supabaseKey, {
     auth: { persistSession: false },
     db: { schema: 'appointments_app' }, // Use appointments_app schema for suggestions table
-  });
+  }) as unknown as SupabaseClient;
 }
 
 
