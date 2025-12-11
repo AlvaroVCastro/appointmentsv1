@@ -15,6 +15,17 @@ interface SlotCardProps {
   onToggleExpand: (slotDateTime: string, event: React.MouseEvent) => void;
 }
 
+/**
+ * Format time from ISO string to HH:MM format.
+ */
+function formatTime(dateTime: string): string {
+  const date = new Date(dateTime);
+  return date.toLocaleTimeString('pt-PT', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function SlotCard({
   slot,
   previousSlotDateTime,
@@ -29,6 +40,11 @@ export function SlotCard({
   const hasAppointment = slot.appointment && !isEmptyDueToStatus;
   // Scheduled appointments are collapsed by default
   const shouldShowDetails = isExpanded || isEmptyDueToStatus;
+  
+  // For merged empty slots, show time range and total duration
+  const isMergedGroup = slot.isMergedGroup && slot.mergedSlots && slot.mergedSlots.length > 1;
+  const endTime = slot.endDateTime ? formatTime(slot.endDateTime) : null;
+  const durationMinutes = slot.durationMinutes || 30;
   
   // Get the date string for comparison (without time)
   const currentDate = new Date(slot.dateTime).toDateString();
@@ -85,11 +101,26 @@ export function SlotCard({
             }`} />
             <div className="flex items-baseline gap-2 min-w-0">
               <div className="flex items-baseline gap-2">
-                <div className={`text-lg font-semibold ${
-                  hasAppointment ? 'text-slate-600' : 
-                  isEmpty ? 'text-orange-700' : 
-                  'text-slate-900'
-                }`}>{time}</div>
+                {/* Time display - show range for empty slots */}
+                {isEmpty && endTime ? (
+                  <div className={`text-lg font-semibold ${
+                    isEmpty ? 'text-orange-700' : 'text-slate-900'
+                  }`}>
+                    {time} – {endTime}
+                  </div>
+                ) : (
+                  <div className={`text-lg font-semibold ${
+                    hasAppointment ? 'text-slate-600' : 
+                    isEmpty ? 'text-orange-700' : 
+                    'text-slate-900'
+                  }`}>{time}</div>
+                )}
+                {/* Duration display */}
+                {isEmpty && (
+                  <div className="text-sm font-medium text-orange-600">
+                    ({durationMinutes} min)
+                  </div>
+                )}
                 {hasAppointment && slot.appointment?.duration && (
                   <div className={`text-xs ${
                     hasAppointment ? 'text-slate-400' : 'text-slate-500'
@@ -113,6 +144,10 @@ export function SlotCard({
               isEmptyDueToStatus ? (
                 <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 font-semibold">
                   {slot.appointment?.status === 'ANNULLED' ? 'Annulled' : 'Rescheduled'}
+                </Badge>
+              ) : isMergedGroup ? (
+                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 font-semibold">
+                  {slot.mergedSlots?.length} slots combined
                 </Badge>
               ) : (
                 <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300 font-semibold">

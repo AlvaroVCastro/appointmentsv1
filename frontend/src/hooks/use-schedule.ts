@@ -11,10 +11,17 @@ export function useSchedule() {
   const [error, setError] = useState<string | null>(null);
   const [expandedSlots, setExpandedSlots] = useState<Set<string>>(new Set());
 
-  const loadSchedule = async () => {
-    if (!doctorCode.trim()) {
+  const loadSchedule = async (codeOverride?: string) => {
+    const codeToUse = codeOverride ?? doctorCode;
+
+    if (!codeToUse.trim()) {
       setError('Please enter a doctor code');
       return;
+    }
+
+    // If using override, also update the state
+    if (codeOverride) {
+      setDoctorCode(codeOverride);
     }
 
     setLoading(true);
@@ -25,7 +32,7 @@ export function useSchedule() {
     try {
       // Load doctor name
       try {
-        const hrResponse = await fetch(`/api/glintt/human-resources/${doctorCode}`);
+        const hrResponse = await fetch(`/api/glintt/human-resources/${codeToUse}`);
         if (hrResponse.ok) {
           const hrData = await hrResponse.json();
           setDoctorName(hrData.humanResource?.HumanResourceName || null);
@@ -35,9 +42,9 @@ export function useSchedule() {
         // Continue even if doctor name fails
       }
 
-      const { startDate, endDate } = getNextDays(7);
+      const { startDate, endDate } = getNextDays(10);
       const response = await fetch(
-        `/api/glintt/schedule?doctorCode=${encodeURIComponent(doctorCode)}&startDate=${startDate}&endDate=${endDate}`
+        `/api/glintt/schedule?doctorCode=${encodeURIComponent(codeToUse)}&startDate=${startDate}&endDate=${endDate}`
       );
 
       if (!response.ok) {
