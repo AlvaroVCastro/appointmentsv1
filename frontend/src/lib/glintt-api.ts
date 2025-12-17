@@ -134,22 +134,8 @@ export async function getDoctorSchedule(
   endDate: string
 ): Promise<{ slots: Slot[]; appointments: Appointment[] }> {
   const token = await getAuthToken();
-  
-  // Step 1: Discover service codes for this doctor
-  const serviceCodes = await getServiceCodesForDoctor(doctorCode);
-  
-  // If no service codes found, return empty schedule (no fallback)
-  if (serviceCodes.length === 0) {
-    console.warn(
-      `[getDoctorSchedule] No service codes found for doctor ${doctorCode}. Returning empty schedule.`
-    );
-    return {
-      slots: [],
-      appointments: [],
-    };
-  }
 
-  // Step 2: Get appointments
+  // Step 1: Get appointments FIRST
   const appointmentsUrl = `${GLINTT_URL}/Hms.OutPatient.Api/hms/outpatient/Appointment`;
   const appointmentsParams = new URLSearchParams({
     beginDate: new Date(startDate).toISOString(),
@@ -170,6 +156,8 @@ export async function getDoctorSchedule(
   );
 
   let appointments: Appointment[] = [];
+  let serviceCode: string | null = null;
+  
   if (appointmentsResponse.ok) {
     const appointmentsData = await appointmentsResponse.json() as RawAppointmentResponse[];
     appointments = (appointmentsData || []).map((apt: RawAppointmentResponse) => ({
@@ -186,50 +174,93 @@ export async function getDoctorSchedule(
       status: apt.status,
       observations: apt.observations,
     }));
+    
+    // Get service code from first appointment
+    serviceCode = appointments[0]?.serviceCode || null;
   }
 
-  // Step 3: Build ExternalMedicalActSlotsList using discovered service codes
-  // MedicalActCode is always '1' (business rule)
-  const externalMedicalActSlotsList = serviceCodes.map(serviceCode => ({
-    StartDate: startDate,
-    EndDate: endDate,
-    MedicalActCode: '1', // Constant - business rule
-    ServiceCode: serviceCode,
-    RescheduleFlag: false,
-    HumanResourceCode: doctorCode,
-    Origin: 'MALO_ADMIN',
-  }));
+  console.log(`[getDoctorSchedule] Using serviceCode from appointments: ${serviceCode}`);
 
-  // Step 4: Get availability slots
+  if (!serviceCode) {
+    console.warn(`[getDoctorSchedule] No service code found in appointments`);
+    return { slots: [], appointments };
+  }
+
+  // Step 2: Make ONE ExternalSearchSlots request
   const slotsUrl = `${GLINTT_URL}/Glintt.HMS.CoreWebAPI/api/hms/appointment/ExternalSearchSlots`;
-  
   const slotsRequest = {
-    LoadAppointments: false,
+    LoadAppointments: true,
     FullSearch: true,
     NumberOfRegisters: 50,
-    Patient: {
-      PatientType: 'MC',
-    },
+    Patient: {},
     Period: [],
     DaysOfWeek: [],
-    ExternalMedicalActSlotsList: externalMedicalActSlotsList,
+    ExternalMedicalActSlotsList: [{
+      StartDate: startDate,
+      EndDate: endDate,
+      MedicalActCode: '1',
+      ServiceCode: serviceCode,
+      RescheduleFlag: false,
+      origin: 'MALO_ADMIN',
+      HumanResourceCode: doctorCode,
+    }],
   };
 
-  const slotsResponse = await fetch(slotsUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(slotsRequest),
-  });
+  console.log(`[getDoctorSchedule] REQUEST:`, JSON.stringify(slotsRequest, null, 2));
 
-  if (!slotsResponse.ok) {
-    throw new Error(`Failed to get slots: ${slotsResponse.statusText}`);
+  let slots: Slot[] = [];
+  try {
+    const slotsResponse = await fetch(slotsUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(slotsRequest),
+    });
+
+    if (slotsResponse.ok) {
+      const slotsData = await slotsResponse.json();
+      console.log(`[getDoctorSchedule] RESPONSE:`, JSON.stringify(slotsData, null, 2));
+      slots = slotsData?.ExternalSearchSlot || [];
+    }
+  } catch (err) {
+    console.error(`[getDoctorSchedule] Error:`, err);
   }
 
-  const slotsData = await slotsResponse.json();
-  const slots: Slot[] = slotsData?.ExternalSearchSlot || [];
+  console.log(`[getDoctorSchedule] Total slots: ${slots.length}`);
+
+  // ============================================================================
+  // TEMPORARY: Hardcoded empty slots at 14:00 for testing - DELETE THIS BLOCK
+  // ============================================================================
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split('T')[0];
+    slots.push({
+      BookingID: `TEST-${dateStr}-14`,
+      SlotDateTime: `${dateStr}T14:00:00`,
+      ServiceCode: serviceCode || '36',
+      HumanResourceCode: doctorCode,
+      Office: null,
+      FirstTime: false,
+      Occupation: false,  // FALSE = empty/free slot
+      Duration: '2020-05-01T00:30:00',
+      BestSlot: false,
+      ExceedFlag: '',
+      CritAppointment: '',
+      OccupationReason: {
+        Code: 'N',  // N = free slot
+        Description: 'Slot livre',
+      },
+      Rubric: null,
+      MedicalActCode: '1',
+    });
+  }
+  console.log(`[getDoctorSchedule] Added ${end.getDate() - start.getDate() + 1} TEST empty slots at 14:00`);
+  // ============================================================================
+  // END TEMPORARY BLOCK
+  // ============================================================================
 
   return { slots, appointments };
 }
@@ -578,6 +609,12 @@ export async function getDoctorAppointmentsForWindow(
       continue;
     }
 
+    // Only include appointments with MedicalActCode = '1' (business rule)
+    const medicalActCode = apt.medicalAct?.code || apt.medicalActCode || '';
+    if (medicalActCode !== '1') {
+      continue;
+    }
+
     const startDateTime = apt.appointmentHour || apt.scheduleDate || apt.appointmentDate || '';
     if (!startDateTime) continue;
 
@@ -591,7 +628,7 @@ export async function getDoctorAppointmentsForWindow(
       patientName: apt.patientIdentifier?.name || apt.patientName,
       doctorCode: apt.doctorCode || apt.humanResourceCode || doctorCode,
       serviceCode: apt.performingService?.code || apt.serviceCode,
-      medicalActCode: apt.medicalAct?.code || apt.medicalActCode,
+      medicalActCode, // Already extracted and validated as '1'
       startDateTime,
       endDateTime,
       durationMinutes,

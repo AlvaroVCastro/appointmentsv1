@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Loader2, Inbox } from 'lucide-react';
+import Link from 'next/link';
 import Loader from '@/components/ui/loader';
 import { useSchedule } from '@/hooks/use-schedule';
-import { useReplacementPatients, type ReplacementCandidate } from '@/hooks/use-replacement-patients';
-import { useToast } from '@/hooks/use-toast';
+import { useReplacementPatients } from '@/hooks/use-replacement-patients';
 import { SlotCard } from '@/components/appointments/slot-card';
 import { ReplacementPatientsList } from '@/components/appointments/replacement-patients-list';
 import { DayStrip } from '@/components/appointments/day-strip';
@@ -20,7 +22,8 @@ import {
   mergeConsecutiveEmptySlots,
 } from '@/lib/appointment-utils';
 
-export default function AppointmentsPage() {
+function AppointmentsPageContent() {
+  const searchParams = useSearchParams();
   const {
     doctorCode,
     doctorName,
@@ -39,11 +42,7 @@ export default function AppointmentsPage() {
     error: replacementError,
     handleSlotClick,
     clearSelection,
-    saveSuggestion,
-    savingCandidateId,
   } = useReplacementPatients(doctorCode);
-
-  const { toast } = useToast();
 
   // Day strip state
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -78,6 +77,14 @@ export default function AppointmentsPage() {
     return getSlotsForDate(mergedSchedule, selectedDate);
   }, [mergedSchedule, selectedDate]);
 
+  // Auto-load doctor from URL params (e.g., after returning from confirmation page)
+  useEffect(() => {
+    const urlDoctorCode = searchParams.get('doctorCode');
+    if (urlDoctorCode && !doctorCode && !loading) {
+      loadSchedule(urlDoctorCode);
+    }
+  }, [searchParams, doctorCode, loading, loadSchedule]);
+
   // Auto-select the first day that has slots when schedule loads
   useEffect(() => {
     if (!loading && mergedSchedule.length > 0 && !selectedDate) {
@@ -109,24 +116,6 @@ export default function AppointmentsPage() {
     loadSchedule(code);    // Pass the code directly to avoid stale closure
   };
 
-  // Handle saving a suggestion to the database
-  const handleSaveSuggestion = async (candidate: ReplacementCandidate) => {
-    const ok = await saveSuggestion(candidate);
-    if (ok) {
-      toast({
-        title: 'Sugestão guardada',
-        description: 'A sugestão foi guardada como pendente.',
-      });
-    } else {
-      toast({
-        title: 'Erro ao guardar sugestão',
-        description: 'Tente novamente mais tarde.',
-        variant: 'destructive',
-      });
-    }
-    return ok;
-  };
-
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
@@ -144,11 +133,21 @@ export default function AppointmentsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <DoctorSelector
-                onDoctorSelected={handleDoctorSelected}
-                onDoctorCodeSubmit={handleDoctorCodeSubmit}
-                initialValue={doctorCode}
-              />
+              <div className="flex items-end gap-4">
+                <div className="flex-1">
+                  <DoctorSelector
+                    onDoctorSelected={handleDoctorSelected}
+                    onDoctorCodeSubmit={handleDoctorCodeSubmit}
+                    initialValue={doctorCode}
+                  />
+                </div>
+                <Link href="/appointments/empty-slots">
+                  <Button variant="outline" className="gap-2 bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100">
+                    <Inbox className="h-4 w-4" />
+                    Empty Slots Inbox
+                  </Button>
+                </Link>
+              </div>
               {loading && (
                 <div className="flex items-center gap-2 mt-3 text-sm text-slate-500">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -183,9 +182,9 @@ export default function AppointmentsPage() {
               {/* Left column: Schedule */}
               <Card className="flex flex-col">
                 <CardHeader className="flex-shrink-0">
-                  <CardTitle>Schedule (Next 10 Days)</CardTitle>
+                  <CardTitle>Agenda (Próximos 10 Dias)</CardTitle>
                   <CardDescription>
-                    Click on an empty, rescheduled, or annulled slot to find replacement patients
+                    Clique num slot livre para encontrar pacientes que podem antecipar
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col min-h-0">
@@ -225,11 +224,11 @@ export default function AppointmentsPage() {
               {/* Right column: Replacement Candidates */}
               <Card className="flex flex-col lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-120px)]">
                 <CardHeader className="flex-shrink-0">
-                  <CardTitle>Replacement Candidates</CardTitle>
+                  <CardTitle>Sugestões de Antecipação</CardTitle>
                   <CardDescription>
                     {selectedSlot
-                      ? `Appointments that can be moved earlier (sorted by proximity)`
-                      : 'Select an empty slot to see potential replacements'}
+                      ? `Marcações que podem ser antecipadas (ordenadas por proximidade)`
+                      : 'Selecione um slot livre para ver potenciais antecipações'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 overflow-hidden">
@@ -238,8 +237,8 @@ export default function AppointmentsPage() {
                     loading={loadingReplacements}
                     hasSelection={!!selectedSlot}
                     error={replacementError}
-                    onSaveSuggestion={handleSaveSuggestion}
-                    savingCandidateId={savingCandidateId}
+                    selectedSlot={selectedSlot}
+                    doctorCode={doctorCode}
                   />
                 </CardContent>
               </Card>
@@ -250,3 +249,17 @@ export default function AppointmentsPage() {
     </div>
   );
 }
+
+function AppointmentsPageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="h-full flex items-center justify-center bg-slate-50">
+        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      </div>
+    }>
+      <AppointmentsPageContent />
+    </Suspense>
+  );
+}
+
+export default AppointmentsPageWrapper;

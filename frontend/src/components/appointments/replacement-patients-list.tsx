@@ -1,18 +1,20 @@
 "use client";
 
+import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Phone, Mail, Clock, Calendar, Users, Save, Loader2 } from 'lucide-react';
+import { Phone, Mail, Clock, Calendar, Users, ArrowRight } from 'lucide-react';
 import Loader from '@/components/ui/loader';
 import type { ReplacementCandidate } from '@/hooks/use-replacement-patients';
+import type { ScheduleSlot } from '@/lib/appointment-utils';
 
 interface ReplacementPatientsListProps {
   candidates: ReplacementCandidate[];
   loading: boolean;
   hasSelection: boolean;
   error?: string | null;
-  onSaveSuggestion?: (candidate: ReplacementCandidate) => Promise<boolean>;
-  savingCandidateId?: string | null;
+  selectedSlot?: ScheduleSlot | null;
+  doctorCode?: string;
 }
 
 /**
@@ -45,14 +47,65 @@ export function ReplacementPatientsList({
   loading,
   hasSelection,
   error,
-  onSaveSuggestion,
-  savingCandidateId,
+  selectedSlot,
+  doctorCode,
 }: ReplacementPatientsListProps) {
+  const router = useRouter();
+
+  /**
+   * Navigate to confirmation page with slot and candidate data
+   */
+  const handleSelectCandidate = (candidate: ReplacementCandidate) => {
+    if (!selectedSlot || !doctorCode) return;
+
+    // Prepare slot data for URL
+    const slotData = {
+      dateTime: selectedSlot.dateTime,
+      endDateTime: selectedSlot.endDateTime,
+      durationMinutes: selectedSlot.durationMinutes,
+      doctorCode: doctorCode,
+      // Include appointment info if exists (e.g., from cancelled slot)
+      appointment: selectedSlot.appointment ? {
+        patientName: selectedSlot.appointment.patientName,
+        patientId: selectedSlot.appointment.patientId,
+        serviceCode: selectedSlot.appointment.serviceCode,
+        medicalActCode: selectedSlot.appointment.medicalActCode,
+      } : undefined,
+    };
+
+    // Prepare candidate data for URL
+    const candidateData = {
+      blockId: candidate.blockId,
+      patientId: candidate.patientId,
+      patientName: candidate.patientName,
+      phoneNumber1: candidate.phoneNumber1,
+      phoneNumber2: candidate.phoneNumber2,
+      email: candidate.email,
+      currentAppointmentDateTime: candidate.currentAppointmentDateTime,
+      currentDurationMinutes: candidate.currentDurationMinutes,
+      anticipationDays: candidate.anticipationDays,
+      appointments: candidate.appointments.map(apt => ({
+        appointmentId: apt.appointmentId,
+        serviceCode: apt.serviceCode,
+        medicalActCode: apt.medicalActCode,
+        durationMinutes: apt.durationMinutes,
+      })),
+    };
+
+    // Build URL with encoded data
+    const params = new URLSearchParams({
+      slot: encodeURIComponent(JSON.stringify(slotData)),
+      candidate: encodeURIComponent(JSON.stringify(candidateData)),
+      doctorCode: doctorCode,
+    });
+
+    router.push(`/appointments/confirm?${params.toString()}`);
+  };
   // Loading state
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-12">
-        <Loader message="Finding eligible patients..." />
+        <Loader message="A procurar pacientes elegíveis..." />
       </div>
     );
   }
@@ -61,7 +114,7 @@ export function ReplacementPatientsList({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4">
-        <div className="text-red-500 mb-2">Error loading candidates</div>
+        <div className="text-red-500 mb-2">Erro ao carregar sugestões</div>
         <div className="text-sm text-slate-500 text-center">{error}</div>
       </div>
     );
@@ -74,10 +127,10 @@ export function ReplacementPatientsList({
         {/* Header - fixed at top */}
         <div className="pb-3 border-b border-slate-100 mb-3">
           <div className="text-sm font-medium text-slate-700">
-            Found {candidates.length} eligible patient{candidates.length !== 1 ? 's' : ''} to move
+            {candidates.length} paciente{candidates.length !== 1 ? 's' : ''} elegível{candidates.length !== 1 ? 'eis' : ''} para antecipar
           </div>
           <div className="text-xs text-slate-500 mt-1">
-            Sorted by proximity (coming up sooner first)
+            Ordenados por proximidade (mais próximos primeiro)
           </div>
         </div>
         
@@ -96,7 +149,7 @@ export function ReplacementPatientsList({
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-slate-900 truncate">
-                      {candidate.patientName || 'Unknown Patient'}
+                      {candidate.patientName || 'Paciente Desconhecido'}
                     </div>
                     <Badge variant="outline" className="mt-1 text-xs">
                       ID: {candidate.patientId}
@@ -105,7 +158,7 @@ export function ReplacementPatientsList({
                   {isBlock && (
                     <Badge className="bg-orange-100 text-orange-800 border-orange-200 ml-2 flex-shrink-0">
                       <Users className="h-3 w-3 mr-1" />
-                      Block ({candidate.appointments.length})
+                      Bloco ({candidate.appointments.length})
                     </Badge>
                   )}
                 </div>
@@ -113,7 +166,7 @@ export function ReplacementPatientsList({
                 {/* Current appointment info */}
                 <div className="bg-slate-50 rounded-md p-3 mb-3">
                   <div className="text-xs text-slate-500 uppercase tracking-wide mb-1">
-                    Current Appointment
+                    Marcação Atual
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                     <div className="flex items-center gap-1.5 text-slate-700">
@@ -142,7 +195,7 @@ export function ReplacementPatientsList({
                           : 'bg-slate-100 text-slate-600'
                       }`}
                     >
-                      In {candidate.anticipationDays} day{candidate.anticipationDays !== 1 ? 's' : ''}
+                      Em {candidate.anticipationDays} dia{candidate.anticipationDays !== 1 ? 's' : ''}
                     </Badge>
                   </div>
                 </div>
@@ -150,7 +203,7 @@ export function ReplacementPatientsList({
                 {/* Block details (if multiple appointments) */}
                 {isBlock && (
                   <div className="mb-3 text-xs">
-                    <div className="text-slate-500 mb-1">Block appointments:</div>
+                    <div className="text-slate-500 mb-1">Marcações do bloco:</div>
                     <div className="space-y-1">
                       {candidate.appointments.map((apt, idx) => {
                         const aptTime = formatAppointmentDateTime(apt.startDateTime);
@@ -202,30 +255,18 @@ export function ReplacementPatientsList({
                   </div>
                 )}
 
-                {/* Save suggestion button */}
-                {onSaveSuggestion && (
-                  <div className="mt-3 pt-3 border-t border-slate-100">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      disabled={savingCandidateId === candidate.blockId}
-                      onClick={() => onSaveSuggestion(candidate)}
-                    >
-                      {savingCandidateId === candidate.blockId ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          A guardar...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="h-4 w-4 mr-2" />
-                          Guardar sugestão
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                )}
+                {/* Navigate to confirmation button */}
+                <div className="mt-3 pt-3 border-t border-slate-100">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full bg-orange-50 border-orange-300 text-orange-700 hover:bg-orange-100 hover:border-orange-400"
+                    onClick={() => handleSelectCandidate(candidate)}
+                  >
+                    <ArrowRight className="h-4 w-4 mr-2" />
+                    Selecionar para antecipação
+                  </Button>
+                </div>
               </div>
             );
           })}
@@ -242,10 +283,10 @@ export function ReplacementPatientsList({
           <Users className="h-12 w-12 mx-auto opacity-50" />
         </div>
         <div className="text-slate-600 font-medium mb-1 text-center">
-          No eligible appointments found
+          Sem marcações elegíveis
         </div>
         <div className="text-sm text-slate-500 text-center">
-          There are no appointments after this slot (in the next 30 days) that can fit into this time slot.
+          Não existem marcações após este slot (nos próximos 30 dias) que caibam neste período.
         </div>
       </div>
     );
@@ -258,7 +299,7 @@ export function ReplacementPatientsList({
         <Calendar className="h-12 w-12 mx-auto" />
       </div>
       <div className="text-slate-500 text-center">
-        Select an empty, rescheduled, or annulled slot to see potential replacement patients.
+        Selecione um slot livre para ver potenciais antecipações.
       </div>
     </div>
   );

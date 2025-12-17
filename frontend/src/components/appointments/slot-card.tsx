@@ -36,10 +36,9 @@ export function SlotCard({
 }: SlotCardProps) {
   const { date, time } = formatDateTime(slot.dateTime);
   const isEmpty = !slot.isOccupied;
-  const isEmptyDueToStatus = slot.isEmptyDueToStatus && slot.appointment;
-  const hasAppointment = slot.appointment && !isEmptyDueToStatus;
-  // Scheduled appointments are collapsed by default
-  const shouldShowDetails = isExpanded || isEmptyDueToStatus;
+  const hasAppointment = slot.appointment && slot.isOccupied;
+  // Show details when expanded (for occupied slots only)
+  const shouldShowDetails = isExpanded && hasAppointment;
   
   // For merged empty slots, show time range and total duration
   const isMergedGroup = slot.isMergedGroup && slot.mergedSlots && slot.mergedSlots.length > 1;
@@ -83,12 +82,8 @@ export function SlotCard({
           isEmpty
             ? isSelected
               ? 'border-orange-500 bg-orange-50'
-              : isEmptyDueToStatus
-                ? 'border-amber-300 bg-amber-50 hover:border-amber-400 hover:bg-amber-100'
-                : 'border-orange-300 bg-orange-50 hover:border-orange-400 hover:bg-orange-100'
-            : hasAppointment
-              ? 'border-slate-200 bg-slate-50'
-              : 'border-slate-200 bg-slate-50'
+              : 'border-orange-300 bg-orange-50 hover:border-orange-400 hover:bg-orange-100'
+            : 'border-slate-200 bg-slate-50'
         }`}
       >
         {/* Compact Header */}
@@ -141,29 +136,25 @@ export function SlotCard({
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             {isEmpty ? (
-              isEmptyDueToStatus ? (
-                <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 font-semibold">
-                  {slot.appointment?.status === 'ANNULLED' ? 'Annulled' : 'Rescheduled'}
-                </Badge>
-              ) : isMergedGroup ? (
-                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 font-semibold">
-                  {slot.mergedSlots?.length} slots combined
+              isMergedGroup ? (
+                <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300 font-semibold">
+                  Livre ({slot.mergedSlots?.length} slots)
                 </Badge>
               ) : (
                 <Badge variant="outline" className="bg-orange-100 text-orange-800 border-orange-300 font-semibold">
-                  Empty
+                  Livre
                 </Badge>
               )
             ) : hasAppointment ? (
               <Badge variant="outline" className="bg-slate-100 text-slate-600 border-slate-300">
                 <User className="h-3 w-3 mr-1" />
-                {slot.appointment?.patientName || 'Appointment'}
+                {slot.appointment?.patientName || 'Ocupado'}
               </Badge>
             ) : (
-              <Badge variant="outline">Occupied</Badge>
+              <Badge variant="outline">Ocupado</Badge>
             )}
-            {/* Expand/Collapse Button */}
-            {(hasAppointment || isEmptyDueToStatus || (slot.slot && slot.slot.OccupationReason?.Description)) && (
+            {/* Expand/Collapse Button - only for occupied slots with appointments */}
+            {hasAppointment && (
               <button
                 onClick={(e) => onToggleExpand(slot.dateTime, e)}
                 className="p-1 hover:bg-slate-200 rounded transition-colors"
@@ -179,81 +170,37 @@ export function SlotCard({
           </div>
         </div>
         
-        {/* Expandable Details */}
-        {shouldShowDetails && (
+        {/* Expandable Details - only for occupied slots with appointments */}
+        {shouldShowDetails && slot.appointment && (
           <div className="px-3 pb-3 space-y-2">
-            {slot.appointment && (
-              <div className={`pt-3 border-t space-y-2 rounded p-3 ${
-                isEmptyDueToStatus 
-                  ? 'bg-amber-50 border-amber-200' 
-                  : 'bg-slate-50 border-slate-200'
-              }`}>
-                {isEmptyDueToStatus ? (
-                  <>
-                    <div className="text-sm font-semibold text-amber-800 mb-2">
-                      {slot.appointment.status === 'ANNULLED' ? 'Annulled Appointment' : 'Rescheduled Appointment'}
-                    </div>
-                    <div className="text-sm text-amber-700">
-                      <span className="font-medium">Patient:</span> {slot.appointment.patientName || 'N/A'}
-                    </div>
-                    <div className="text-xs text-amber-600 flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                      <div>
-                        <span className="font-medium">ID:</span> {slot.appointment.patientId}
-                      </div>
-                      {slot.appointment.serviceCode && (
-                        <div>
-                          <span className="font-medium">Service:</span> {slot.appointment.serviceCode}
-                        </div>
-                      )}
-                      {slot.appointment.medicalActCode && (
-                        <div>
-                          <span className="font-medium">Act:</span> {slot.appointment.medicalActCode}
-                        </div>
-                      )}
-                    </div>
-                    {slot.appointment.observations && (
-                      <div className="text-xs text-amber-600 mt-2 italic">
-                        {slot.appointment.observations}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <div className="text-sm font-semibold text-slate-600 mb-2">
-                      Appointment Details
-                    </div>
-                    <div className="text-sm text-slate-600">
-                      <span className="font-medium">Patient:</span> {slot.appointment.patientName || 'N/A'}
-                    </div>
-                    <div className="text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                      <div>
-                        <span className="font-medium">ID:</span> {slot.appointment.patientId}
-                      </div>
-                      {slot.appointment.serviceCode && (
-                        <div>
-                          <span className="font-medium">Service:</span> {slot.appointment.serviceCode}
-                        </div>
-                      )}
-                      {slot.appointment.medicalActCode && (
-                        <div>
-                          <span className="font-medium">Act:</span> {slot.appointment.medicalActCode}
-                        </div>
-                      )}
-                      {slot.appointment.duration && (
-                        <div>
-                          <span className="font-medium">Duration:</span> {slot.appointment.duration}
-                        </div>
-                      )}
-                    </div>
-                  </>
+            <div className="pt-3 border-t space-y-2 rounded p-3 bg-slate-50 border-slate-200">
+              <div className="text-sm font-semibold text-slate-600 mb-2">
+                Detalhes da Marcação
+              </div>
+              <div className="text-sm text-slate-600">
+                <span className="font-medium">Paciente:</span> {slot.appointment.patientName || 'N/A'}
+              </div>
+              <div className="text-xs text-slate-500 flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                <div>
+                  <span className="font-medium">ID:</span> {slot.appointment.patientId}
+                </div>
+                {slot.appointment.serviceCode && (
+                  <div>
+                    <span className="font-medium">Serviço:</span> {slot.appointment.serviceCode}
+                  </div>
+                )}
+                {slot.appointment.medicalActCode && (
+                  <div>
+                    <span className="font-medium">Ato:</span> {slot.appointment.medicalActCode}
+                  </div>
+                )}
+                {slot.appointment.duration && (
+                  <div>
+                    <span className="font-medium">Duração:</span> {slot.appointment.duration}
+                  </div>
                 )}
               </div>
-            )}
-            {slot.slot && slot.slot.OccupationReason?.Description && (
-              <div className="text-xs text-slate-500">
-                {slot.slot.OccupationReason.Description}
-              </div>
-            )}
+            </div>
           </div>
         )}
       </div>
