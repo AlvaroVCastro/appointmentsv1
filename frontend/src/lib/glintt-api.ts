@@ -230,37 +230,6 @@ export async function getDoctorSchedule(
 
   console.log(`[getDoctorSchedule] Total slots: ${slots.length}`);
 
-  // ============================================================================
-  // TEMPORARY: Hardcoded empty slots at 14:00 for testing - DELETE THIS BLOCK
-  // ============================================================================
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    const dateStr = d.toISOString().split('T')[0];
-    slots.push({
-      BookingID: `TEST-${dateStr}-14`,
-      SlotDateTime: `${dateStr}T14:00:00`,
-      ServiceCode: serviceCode || '36',
-      HumanResourceCode: doctorCode,
-      Office: null,
-      FirstTime: false,
-      Occupation: false,  // FALSE = empty/free slot
-      Duration: '2020-05-01T00:30:00',
-      BestSlot: false,
-      ExceedFlag: '',
-      CritAppointment: '',
-      OccupationReason: {
-        Code: 'N',  // N = free slot
-        Description: 'Slot livre',
-      },
-      Rubric: null,
-      MedicalActCode: '1',
-    });
-  }
-  console.log(`[getDoctorSchedule] Added ${end.getDate() - start.getDate() + 1} TEST empty slots at 14:00`);
-  // ============================================================================
-  // END TEMPORARY BLOCK
-  // ============================================================================
 
   return { slots, appointments };
 }
