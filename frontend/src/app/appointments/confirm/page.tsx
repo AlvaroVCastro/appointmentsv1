@@ -227,51 +227,49 @@ function ConfirmPageContent() {
 
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-5xl mx-auto space-y-6">
-          {/* Back button */}
-          <Button 
-            variant="ghost" 
-            onClick={() => router.push('/appointments')}
-            className="mb-2"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Voltar à Agenda
-          </Button>
-
-          {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold text-slate-900">Confirmar Antecipação</h1>
-            <p className="text-slate-500 mt-2">
-              Confirme os detalhes antes de registar a marcação
-            </p>
+      <div className="flex-1 p-3">
+        <div className="max-w-5xl mx-auto space-y-2 h-full flex flex-col">
+          {/* Back button + Header inline */}
+          <div className="flex items-center justify-between">
+            <Button 
+              variant="ghost" 
+              onClick={() => router.push('/appointments')}
+              size="sm"
+            >
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Voltar
+            </Button>
+            <div className="text-center flex-1">
+              <h1 className="text-lg font-bold text-slate-900">Confirmar Antecipação</h1>
+            </div>
+            <div className="w-20"></div> {/* Spacer for centering */}
           </div>
 
           {/* Two cards side by side */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-0">
             {/* Left Card: Empty Slot (New Time) */}
             <Card className="border-2 border-orange-300 bg-orange-50">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-orange-800 flex items-center gap-2">
-                  <Calendar className="h-5 w-5" />
+              <CardHeader className="py-1.5 px-3">
+                <CardTitle className="text-orange-800 flex items-center gap-2 text-sm">
+                  <Calendar className="h-4 w-4" />
                   Novo Horário (Slot Livre)
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="bg-white rounded-lg p-4 space-y-3">
-                  <div className="flex items-center gap-3">
-                    <Calendar className="h-5 w-5 text-orange-600" />
+              <CardContent className="px-3 pb-2 pt-0">
+                <div className="bg-white rounded-lg p-2 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-orange-600" />
                     <div>
-                      <div className="text-sm text-slate-500">Data</div>
-                      <div className="font-semibold text-slate-900">{slotFormatted.fullDate}</div>
+                      <div className="text-xs text-slate-500">Data</div>
+                      <div className="font-semibold text-sm text-slate-900">{slotFormatted.fullDate}</div>
                     </div>
                   </div>
                   
-                  <div className="flex items-center gap-3">
-                    <Clock className="h-5 w-5 text-orange-600" />
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-orange-600" />
                     <div>
-                      <div className="text-sm text-slate-500">Horário</div>
-                      <div className="font-semibold text-slate-900">
+                      <div className="text-xs text-slate-500">Horário</div>
+                      <div className="font-semibold text-sm text-slate-900">
                         {slotFormatted.time}
                         {endTime && ` – ${endTime}`}
                       </div>
@@ -279,31 +277,26 @@ function ConfirmPageContent() {
                   </div>
 
                   {slotData.durationMinutes && (
-                    <div className="flex items-center gap-3">
-                      <div className="h-5 w-5 flex items-center justify-center text-orange-600 font-bold text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="h-4 w-4 flex items-center justify-center text-orange-600 font-bold text-xs">
                         ⏱
                       </div>
                       <div>
-                        <div className="text-sm text-slate-500">Duração Disponível</div>
-                        <div className="font-semibold text-slate-900">{slotData.durationMinutes} minutos</div>
+                        <div className="text-xs text-slate-500">Duração</div>
+                        <div className="font-semibold text-sm text-slate-900">{slotData.durationMinutes} min</div>
                       </div>
                     </div>
                   )}
 
                   {/* Show appointment info if it exists (e.g., from cancelled appointment) */}
                   {slotData.appointment && (
-                    <div className="pt-3 border-t border-orange-200">
-                      <div className="text-xs text-orange-700 uppercase tracking-wide mb-2">
-                        Informação do Slot
+                    <div className="pt-2 border-t border-orange-200">
+                      <div className="text-xs text-orange-700 uppercase tracking-wide mb-1">
+                        Info do Slot
                       </div>
                       {slotData.appointment.patientName && (
-                        <div className="text-sm text-slate-600">
-                          <span className="font-medium">Paciente anterior:</span> {slotData.appointment.patientName}
-                        </div>
-                      )}
-                      {slotData.appointment.serviceCode && (
-                        <div className="text-sm text-slate-600">
-                          <span className="font-medium">Serviço:</span> {slotData.appointment.serviceCode}
+                        <div className="text-xs text-slate-600">
+                          <span className="font-medium">Anterior:</span> {slotData.appointment.patientName}
                         </div>
                       )}
                     </div>
@@ -314,97 +307,70 @@ function ConfirmPageContent() {
 
             {/* Right Card: Appointment to Move */}
             <Card className="border-2 border-slate-300 bg-slate-50">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-slate-800 flex items-center gap-2">
-                  <User className="h-5 w-5" />
+              <CardHeader className="py-1.5 px-3">
+                <CardTitle className="text-slate-800 flex items-center gap-2 text-sm">
+                  <User className="h-4 w-4" />
                   Marcação a Antecipar
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="bg-white rounded-lg p-4 space-y-3">
+              <CardContent className="px-3 pb-2 pt-0">
+                <div className="bg-white rounded-lg p-2 space-y-1.5">
                   {/* Patient Name */}
-                  <div className="flex items-center gap-3">
-                    <User className="h-5 w-5 text-slate-600" />
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-slate-600" />
                     <div>
-                      <div className="text-sm text-slate-500">Paciente</div>
-                      <div className="font-semibold text-slate-900">
+                      <div className="text-xs text-slate-500">Paciente</div>
+                      <div className="font-semibold text-sm text-slate-900">
                         {candidateData.patientName || 'Paciente Desconhecido'}
                       </div>
-                      <div className="text-xs text-slate-500">ID: {candidateData.patientId}</div>
                     </div>
                   </div>
 
-                  {/* Current Date/Time */}
-                  <div className="flex items-center gap-3">
-                    <Calendar className="h-5 w-5 text-slate-600" />
-                    <div>
-                      <div className="text-sm text-slate-500">Data Atual</div>
-                      <div className="font-semibold text-slate-900">{candidateFormatted.fullDate}</div>
+                  {/* Current Date/Time - inline */}
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-slate-600" />
+                      <div>
+                        <div className="text-xs text-slate-500">Data</div>
+                        <div className="font-semibold text-sm text-slate-900">{candidateFormatted.date}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-slate-600" />
+                      <div>
+                        <div className="text-xs text-slate-500">Hora</div>
+                        <div className="font-semibold text-sm text-slate-900">{candidateFormatted.time}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="h-4 w-4 flex items-center justify-center text-slate-600 font-bold text-xs">
+                        ⏱
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500">Duração</div>
+                        <div className="font-semibold text-sm text-slate-900">{candidateData.currentDurationMinutes} min</div>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3">
-                    <Clock className="h-5 w-5 text-slate-600" />
-                    <div>
-                      <div className="text-sm text-slate-500">Horário Atual</div>
-                      <div className="font-semibold text-slate-900">{candidateFormatted.time}</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <div className="h-5 w-5 flex items-center justify-center text-slate-600 font-bold text-sm">
-                      ⏱
-                    </div>
-                    <div>
-                      <div className="text-sm text-slate-500">Duração</div>
-                      <div className="font-semibold text-slate-900">{candidateData.currentDurationMinutes} minutos</div>
-                    </div>
-                  </div>
-
-                  {/* Service/Medical Act info */}
-                  {candidateData.appointments[0] && (
-                    <div className="pt-3 border-t border-slate-200">
-                      {candidateData.appointments[0].serviceCode && (
-                        <div className="text-sm text-slate-600">
-                          <span className="font-medium">Serviço:</span> {candidateData.appointments[0].serviceCode}
-                        </div>
-                      )}
-                      {candidateData.appointments[0].medicalActCode && (
-                        <div className="text-sm text-slate-600">
-                          <span className="font-medium">Ato Médico:</span> {candidateData.appointments[0].medicalActCode}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Contact Info */}
-                  {(candidateData.phoneNumber1 || candidateData.phoneNumber2 || candidateData.email) && (
-                    <div className="pt-3 border-t border-slate-200 space-y-2">
-                      <div className="text-xs text-slate-500 uppercase tracking-wide">Contactos</div>
+                  {/* Contact Info - inline */}
+                  {(candidateData.phoneNumber1 || candidateData.email) && (
+                    <div className="pt-2 border-t border-slate-200 flex flex-wrap gap-3">
                       {candidateData.phoneNumber1 && (
                         <a 
                           href={`tel:${candidateData.phoneNumber1}`}
-                          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
                         >
-                          <Phone className="h-4 w-4" />
+                          <Phone className="h-3 w-3" />
                           {candidateData.phoneNumber1}
-                        </a>
-                      )}
-                      {candidateData.phoneNumber2 && (
-                        <a 
-                          href={`tel:${candidateData.phoneNumber2}`}
-                          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
-                        >
-                          <Phone className="h-4 w-4" />
-                          {candidateData.phoneNumber2}
                         </a>
                       )}
                       {candidateData.email && (
                         <a 
                           href={`mailto:${candidateData.email}`}
-                          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800"
+                          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
                         >
-                          <Mail className="h-4 w-4" />
+                          <Mail className="h-3 w-3" />
                           {candidateData.email}
                         </a>
                       )}
@@ -412,8 +378,8 @@ function ConfirmPageContent() {
                   )}
 
                   {/* Anticipation badge */}
-                  <div className="pt-3 border-t border-slate-200">
-                    <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                  <div className="pt-2 border-t border-slate-200">
+                    <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                       candidateData.anticipationDays <= 3
                         ? 'bg-green-100 text-green-800'
                         : candidateData.anticipationDays <= 7
@@ -429,12 +395,12 @@ function ConfirmPageContent() {
           </div>
 
           {/* Confirmation Section */}
-          <Card className="mt-8">
-            <CardContent className="pt-6">
-              <div className="space-y-6">
-                {/* Checkboxes */}
-                <div className="space-y-4">
-                  <div className="flex items-center space-x-3">
+          <Card className="mt-auto shrink-0">
+            <CardContent className="py-3 px-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                {/* Checkboxes - horizontal on desktop */}
+                <div className="flex flex-col md:flex-row gap-2 md:gap-5">
+                  <div className="flex items-center space-x-2">
                     <Checkbox 
                       id="lab-confirm" 
                       checked={labConfirmed}
@@ -442,13 +408,13 @@ function ConfirmPageContent() {
                     />
                     <Label 
                       htmlFor="lab-confirm" 
-                      className="text-base font-medium cursor-pointer"
+                      className="text-sm font-medium cursor-pointer"
                     >
-                      Confirmação do laboratório
+                      Confirmo que o laboratório tem disponibilidade
                     </Label>
                   </div>
 
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-2">
                     <Checkbox 
                       id="client-confirm" 
                       checked={clientConfirmed}
@@ -456,9 +422,9 @@ function ConfirmPageContent() {
                     />
                     <Label 
                       htmlFor="client-confirm" 
-                      className="text-base font-medium cursor-pointer"
+                      className="text-sm font-medium cursor-pointer"
                     >
-                      Confirmação do cliente
+                      Confirmo que já contactei o cliente
                     </Label>
                   </div>
                 </div>
@@ -466,7 +432,7 @@ function ConfirmPageContent() {
                 {/* Confirm Button */}
                 <Button
                   size="lg"
-                  className={`w-full text-lg py-6 transition-all ${
+                  className={`min-w-[180px] text-base py-4 transition-all ${
                     canConfirm 
                       ? 'bg-green-600 hover:bg-green-700 text-white' 
                       : 'bg-slate-300 text-slate-500 cursor-not-allowed'
@@ -486,12 +452,6 @@ function ConfirmPageContent() {
                     </>
                   )}
                 </Button>
-
-                {!canConfirm && (
-                  <p className="text-center text-sm text-slate-500">
-                    Marque ambas as confirmações para prosseguir
-                  </p>
-                )}
               </div>
             </CardContent>
           </Card>

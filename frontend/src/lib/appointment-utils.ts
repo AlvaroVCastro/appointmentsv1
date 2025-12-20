@@ -1,4 +1,4 @@
-import type { Slot, Appointment } from '@/lib/glintt-api';
+import type { Slot, Appointment, MergedSlot } from '@/lib/glintt-api';
 
 export interface ScheduleSlot {
   dateTime: string;
@@ -8,6 +8,7 @@ export interface ScheduleSlot {
   isRescheduled?: boolean;
   originalDate?: string;
   isEmptyDueToStatus?: boolean; // For ANNULLED or RESCHEDULED appointments
+  missingAppointmentDetails?: boolean; // Occupied slot with no matching appointment found
   // Fields for merged empty slot groups
   durationMinutes?: number;      // Duration of this slot (or total duration if merged)
   endDateTime?: string;          // End time (important for merged slots)
@@ -50,115 +51,48 @@ export function formatFullDate(dateTime: string) {
   });
 }
 
-export function processScheduleData(slots: Slot[], appointments: Appointment[]): ScheduleSlot[] {
-  const scheduleMap = new Map<string, ScheduleSlot>();
+/**
+ * Processes merged slots from the API into ScheduleSlot[] for the UI.
+ * 
+ * Since merging is now done server-side in glintt-api.ts, this function
+ * is a simple mapper that:
+ * 1. Defensive filter: skip any blocked slots (Code "B") that slipped through
+ * 2. Maps MergedSlot fields to ScheduleSlot fields
+ * 3. Sorts by datetime
+ * 
+ * The slots parameter is actually MergedSlot[] from getDoctorSchedule().
+ * The appointments parameter is kept for backward compatibility but not used.
+ */
+export function processScheduleData(slots: MergedSlot[], _appointments: Appointment[]): ScheduleSlot[] {
+  console.log(`[processScheduleData] Processing ${slots.length} pre-merged slots`);
   
-  console.log(`[processScheduleData] Processing ${slots.length} slots and ${appointments.length} appointments`);
+  const result: ScheduleSlot[] = [];
   
-  // Count free slots - check ONLY Occupation=false
-  const freeSlots = slots.filter(s => s.Occupation === false);
-  const codeNSlots = slots.filter(s => s.OccupationReason?.Code === 'N');
-  console.log(`[processScheduleData] Free slots from Glintt: ${freeSlots.length} (Occupation=false), ${codeNSlots.length} with Code='N'`);
-  
-  // Debug first few slots
-  slots.slice(0, 5).forEach((s, i) => {
-    console.log(`[processScheduleData] Slot ${i}: ${s.SlotDateTime}, Occupation=${s.Occupation}, Code=${s.OccupationReason?.Code}`);
-  });
-  
-  // Process slots - check both Occupation and OccupationReason.Code
-  // OccupationReason.Code === "C" means "Slot totalmente ocupado" (totally occupied)
-  // OccupationReason.Code === "B" means "Slot bloqueada" (blocked slot - skip)
-  // OccupationReason.Code === "N" means "Slot livre" (free slot)
-  slots.forEach((slot: Slot) => {
-    const occupationReasonCode = slot.OccupationReason?.Code;
-    
-    // Skip blocked slots (Code B) - they should not be shown at all
-    if (occupationReasonCode === "B") {
-      return;
+  for (const slot of slots) {
+    // Defensive: skip blocked slots (should already be filtered server-side)
+    if (slot.OccupationReason?.Code === 'B') {
+      continue;
     }
     
-    const dateTime = new Date(slot.SlotDateTime).toISOString();
-    // Slot is occupied if Occupation is true OR OccupationReason.Code is "C"
-    const isOccupied = slot.Occupation === true || occupationReasonCode === "C";
-    scheduleMap.set(dateTime, {
-      dateTime,
-      isOccupied,
-      slot,
-    });
-  });
-
-  // Debug: check how many empty after slot processing
-  const afterSlotsEmpty = Array.from(scheduleMap.values()).filter(s => !s.isOccupied).length;
-  console.log(`[processScheduleData] After processing slots: ${scheduleMap.size} entries, ${afterSlotsEmpty} empty`);
-
-  // Process appointments - prioritize scheduled appointments over rescheduled/annulled
-  // First pass: Process scheduled appointments (not ANNULLED or RESCHEDULED)
-  // IMPORTANT: Don't override isOccupied - Glintt already tells us correct status
-  // Only attach appointment info for display purposes
-  appointments.forEach((apt: Appointment) => {
-    const aptDateTime = new Date(apt.scheduleDate);
-    const isAnnulledOrRescheduled = apt.status === 'ANNULLED' || apt.status === 'RESCHEDULED';
+    // Map MergedSlot to ScheduleSlot
+    const scheduleSlot: ScheduleSlot = {
+      dateTime: slot.SlotDateTime,
+      isOccupied: slot.isOccupied,
+      slot: slot, // Keep raw slot data for reference
+      appointment: slot.appointment,
+      missingAppointmentDetails: slot.missingAppointmentDetails,
+    };
     
-    // Skip annulled/rescheduled in first pass
-    if (isAnnulledOrRescheduled) return;
-    
-    // Try to match with slots that are close in time (within 30 minutes inclusive)
-    let matched = false;
-    for (const [dateTime, slot] of scheduleMap.entries()) {
-      const slotDateTime = new Date(dateTime);
-      const timeDiff = Math.abs(aptDateTime.getTime() - slotDateTime.getTime());
-      // Match if within 30 minutes (inclusive - <= not <)
-      if (timeDiff <= 30 * 60 * 1000) {
-        // Only attach appointment info - DON'T override Glintt's occupation status
-        slot.appointment = apt;
-        matched = true;
-        break;
-      }
-    }
-    
-    // If no match found, add as a standalone appointment (occupied)
-    if (!matched) {
-      scheduleMap.set(aptDateTime.toISOString(), {
-        dateTime: aptDateTime.toISOString(),
-        isOccupied: true,
-        appointment: apt,
-      });
-    }
-  });
-
-  // Second pass: Process ANNULLED/RESCHEDULED appointments
-  // Only overlay on existing slots - DO NOT create standalone phantom slots
-  appointments.forEach((apt: Appointment) => {
-    const aptDateTime = new Date(apt.scheduleDate);
-    const isAnnulledOrRescheduled = apt.status === 'ANNULLED' || apt.status === 'RESCHEDULED';
-    
-    // Only process annulled/rescheduled in second pass
-    if (!isAnnulledOrRescheduled) return;
-    
-    // Try to match with slots that are close in time (within 30 minutes inclusive)
-    for (const [dateTime, slot] of scheduleMap.entries()) {
-      const slotDateTime = new Date(dateTime);
-      const timeDiff = Math.abs(aptDateTime.getTime() - slotDateTime.getTime());
-      // Match if within 30 minutes (inclusive - <= not <)
-      if (timeDiff <= 30 * 60 * 1000) {
-        // Only add if slot doesn't already have an appointment (scheduled appointments take priority)
-        if (!slot.appointment) {
-          slot.isOccupied = false;
-          slot.appointment = apt;
-          slot.isEmptyDueToStatus = true;
-        }
-        // Either way, stop looking - don't create phantom slots
-        break;
-      }
-    }
-    // If no match found, DO NOT create a standalone slot - this would create phantom free slots
-  });
-
-  const result = Array.from(scheduleMap.values());
+    result.push(scheduleSlot);
+  }
+  
   const emptyCount = result.filter(s => !s.isOccupied).length;
-  console.log(`[processScheduleData] Final result: ${result.length} slots, ${emptyCount} are empty`);
+  const occupiedCount = result.filter(s => s.isOccupied).length;
+  const missingCount = result.filter(s => s.missingAppointmentDetails).length;
   
-  // Sort by date
+  console.log(`[processScheduleData] Result: ${result.length} slots (${emptyCount} free, ${occupiedCount} occupied, ${missingCount} missing appointment details)`);
+  
+  // Sort by datetime
   return result.sort(
     (a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()
   );

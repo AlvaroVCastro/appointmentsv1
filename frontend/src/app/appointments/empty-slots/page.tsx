@@ -1,14 +1,18 @@
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, ArrowLeft, Calendar } from 'lucide-react';
 import Link from 'next/link';
 import Loader from '@/components/ui/loader';
 import { useSchedule } from '@/hooks/use-schedule';
+import { useReplacementPatients } from '@/hooks/use-replacement-patients';
 import { DoctorSelector } from '@/components/appointments/doctor-selector';
+import { ReplacementPatientsList } from '@/components/appointments/replacement-patients-list';
 import type { DoctorSearchResult } from '@/lib/glintt-api';
+import type { ScheduleSlot } from '@/lib/appointment-utils';
 import {
   getNextDaysArray,
   mergeConsecutiveEmptySlots,
@@ -16,7 +20,8 @@ import {
   formatDateKey,
 } from '@/lib/appointment-utils';
 
-export default function EmptySlotsInboxPage() {
+function EmptySlotsInboxContent() {
+  const searchParams = useSearchParams();
   const {
     doctorCode,
     doctorName,
@@ -26,17 +31,35 @@ export default function EmptySlotsInboxPage() {
     loadSchedule,
   } = useSchedule();
 
-  const [selectedSlotKey, setSelectedSlotKey] = useState<string | null>(null);
+  const {
+    selectedSlot,
+    replacementCandidates,
+    loadingReplacements,
+    error: replacementError,
+    handleSlotClick,
+    clearSelection,
+  } = useReplacementPatients(doctorCode);
+
+  // Auto-load doctor from URL params
+  useEffect(() => {
+    const urlDoctorCode = searchParams.get('doctorCode');
+    if (urlDoctorCode && !doctorCode && !loading) {
+      loadSchedule(urlDoctorCode);
+    }
+  }, [searchParams, doctorCode, loading, loadSchedule]);
 
   // Generate 10 days array
   const tenDays = useMemo(() => getNextDaysArray(10), []);
 
   // Merge consecutive empty slots and filter to only empty ones
   const emptySlots = useMemo(() => {
+    console.log('[EmptySlots] schedule.length:', schedule?.length, 'loading:', loading, 'doctorCode:', doctorCode);
     if (!schedule || schedule.length === 0) return [];
     const merged = mergeConsecutiveEmptySlots(schedule);
-    return merged.filter(slot => isEmptySlot(slot));
-  }, [schedule]);
+    const filtered = merged.filter(slot => isEmptySlot(slot));
+    console.log('[EmptySlots] merged:', merged.length, 'filtered (empty):', filtered.length);
+    return filtered;
+  }, [schedule, loading, doctorCode]);
 
   // Group empty slots by date
   const slotsByDate = useMemo(() => {
@@ -53,13 +76,17 @@ export default function EmptySlotsInboxPage() {
 
   const handleDoctorSelected = (doctor: DoctorSearchResult) => {
     const code = doctor.code || doctor.id;
-    setSelectedSlotKey(null);
+    clearSelection();
     loadSchedule(code);
   };
 
   const handleDoctorCodeSubmit = (code: string) => {
-    setSelectedSlotKey(null);
+    clearSelection();
     loadSchedule(code);
+  };
+
+  const handleSlotSelect = (slot: ScheduleSlot) => {
+    handleSlotClick(slot);
   };
 
   const formatTime = (dateTime: string) => {
@@ -81,7 +108,7 @@ export default function EmptySlotsInboxPage() {
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
           <div className="flex items-center gap-4">
             <Link href="/appointments">
@@ -139,104 +166,112 @@ export default function EmptySlotsInboxPage() {
             </Card>
           )}
 
-          {/* Empty Slots List */}
+          {/* Side-by-side layout: Empty Slots List + Suggestions */}
           {!loading && emptySlots.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {emptySlots.length} Empty Slot{emptySlots.length !== 1 ? 's' : ''} Found
-                </CardTitle>
-                <CardDescription>
-                  {doctorName ? `Available slots for ${doctorName}` : 'Click a slot to select it'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {Array.from(slotsByDate.entries()).map(([dateKey, slots]) => (
-                  <div key={dateKey}>
-                    <h3 className="text-sm font-semibold text-slate-600 mb-2 uppercase tracking-wide">
-                      {formatDate(dateKey)}
-                    </h3>
-                    <div className="space-y-2">
-                      {slots.map((slot) => {
-                        const isSelected = selectedSlotKey === slot.dateTime;
-                        const startTime = formatTime(slot.dateTime);
-                        const endTime = slot.endDateTime ? formatTime(slot.endDateTime) : null;
-                        const duration = slot.durationMinutes || 30;
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-6 lg:min-h-[700px]">
+              {/* Left column: Empty Slots */}
+              <Card className="flex flex-col">
+                <CardHeader className="flex-shrink-0">
+                  <CardTitle>
+                    {emptySlots.length} Empty Slot{emptySlots.length !== 1 ? 's' : ''} Found
+                  </CardTitle>
+                  <CardDescription>
+                    {doctorName 
+                      ? `Clique num slot para ver sugestões de antecipação` 
+                      : 'Click a slot to see anticipation suggestions'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex-1 overflow-y-auto space-y-6">
+                  {Array.from(slotsByDate.entries()).map(([dateKey, slots]) => (
+                    <div key={dateKey}>
+                      <h3 className="text-sm font-semibold text-slate-600 mb-2 uppercase tracking-wide">
+                        {formatDate(dateKey)}
+                      </h3>
+                      <div className="space-y-2">
+                        {slots.map((slot) => {
+                          const isSelected = selectedSlot?.dateTime === slot.dateTime;
+                          const startTime = formatTime(slot.dateTime);
+                          const endTime = slot.endDateTime ? formatTime(slot.endDateTime) : null;
+                          const duration = slot.durationMinutes || 30;
 
-                        return (
-                          <div
-                            key={slot.dateTime}
-                            onClick={() => setSelectedSlotKey(isSelected ? null : slot.dateTime)}
-                            className={`
-                              p-4 rounded-lg border-2 cursor-pointer transition-all
-                              ${isSelected 
-                                ? 'border-orange-500 bg-orange-100 shadow-md' 
-                                : 'border-orange-200 bg-orange-50 hover:border-orange-300 hover:bg-orange-100'
-                              }
-                            `}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <span className="text-lg font-semibold text-orange-800">
-                                  {startTime}
-                                  {endTime && ` – ${endTime}`}
-                                </span>
-                                <span className="ml-2 text-sm text-orange-600">
-                                  ({duration} min)
+                          return (
+                            <div
+                              key={slot.dateTime}
+                              onClick={() => handleSlotSelect(slot)}
+                              className={`
+                                p-4 rounded-lg border-2 cursor-pointer transition-all
+                                ${isSelected 
+                                  ? 'border-orange-500 bg-orange-100 shadow-md' 
+                                  : 'border-orange-200 bg-orange-50 hover:border-orange-300 hover:bg-orange-100'
+                                }
+                              `}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <span className="text-lg font-semibold text-orange-800">
+                                    {startTime}
+                                    {endTime && ` – ${endTime}`}
+                                  </span>
+                                  <span className="ml-2 text-sm text-orange-600">
+                                    ({duration} min)
+                                  </span>
+                                </div>
+                                <span className="px-3 py-1 rounded-full text-xs font-medium bg-orange-200 text-orange-800">
+                                  Available
                                 </span>
                               </div>
-                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-orange-200 text-orange-800">
-                                Available
-                              </span>
+                              {slot.isMergedGroup && (
+                                <p className="text-xs text-orange-600 mt-1">
+                                  {slot.mergedSlots?.length || 0} consecutive slots merged
+                                </p>
+                              )}
                             </div>
-                            {slot.isMergedGroup && (
-                              <p className="text-xs text-orange-600 mt-1">
-                                {slot.mergedSlots?.length || 0} consecutive slots merged
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+                  ))}
+                </CardContent>
+              </Card>
 
-          {/* Action Panel (when slot selected) */}
-          {selectedSlotKey && (
-            <Card className="border-orange-300 bg-orange-50">
-              <CardHeader>
-                <CardTitle className="text-orange-800">Slot Selected</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-orange-700">
-                  You selected the slot at {formatTime(selectedSlotKey)}
-                </p>
-                <div className="flex gap-2">
-                  <Link href={`/appointments?doctorCode=${doctorCode}`}>
-                    <Button variant="outline">
-                      View Full Schedule
-                    </Button>
-                  </Link>
-                  <Button 
-                    variant="default" 
-                    className="bg-orange-600 hover:bg-orange-700"
-                    onClick={() => {
-                      // For now, just show an alert - you can expand this later
-                      alert(`Selected slot: ${selectedSlotKey}\nDoctor: ${doctorCode}`);
-                    }}
-                  >
-                    Find Patients to Fill
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+              {/* Right column: Replacement Candidates (Suggestions) */}
+              <Card className="flex flex-col lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-120px)]">
+                <CardHeader className="flex-shrink-0">
+                  <CardTitle>Sugestões de Antecipação</CardTitle>
+                  <CardDescription>
+                    {selectedSlot
+                      ? `Marcações que podem ser antecipadas (ordenadas por proximidade)`
+                      : 'Selecione um slot livre para ver potenciais antecipações'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex-1 overflow-hidden">
+                  <ReplacementPatientsList
+                    candidates={replacementCandidates}
+                    loading={loadingReplacements}
+                    hasSelection={!!selectedSlot}
+                    error={replacementError}
+                    selectedSlot={selectedSlot}
+                    doctorCode={doctorCode}
+                  />
+                </CardContent>
+              </Card>
+            </div>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+export default function EmptySlotsInboxPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-full flex items-center justify-center bg-slate-50">
+        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      </div>
+    }>
+      <EmptySlotsInboxContent />
+    </Suspense>
   );
 }
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ScheduleSlot } from '@/lib/appointment-utils';
 import { getNextDays, processScheduleData } from '@/lib/appointment-utils';
-import type { Slot, Appointment } from '@/lib/glintt-api';
+import type { MergedSlot, Appointment } from '@/lib/glintt-api';
 
 export function useSchedule() {
   const [doctorCode, setDoctorCode] = useState('');
@@ -54,7 +54,7 @@ export function useSchedule() {
 
       const data = await response.json();
       const processedSchedule = processScheduleData(
-        (data.slots || []) as Slot[],
+        (data.slots || []) as MergedSlot[],
         (data.appointments || []) as Appointment[]
       );
 
