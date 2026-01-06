@@ -4,8 +4,7 @@ import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, ArrowLeft, Calendar } from 'lucide-react';
-import Link from 'next/link';
+import { Loader2, Calendar } from 'lucide-react';
 import Loader from '@/components/ui/loader';
 import { useSchedule } from '@/hooks/use-schedule';
 import { useReplacementPatients } from '@/hooks/use-replacement-patients';
@@ -111,13 +110,7 @@ function EmptySlotsInboxContent() {
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
           <div className="flex items-center gap-4">
-            <Link href="/appointments">
-              <Button variant="ghost" size="sm" className="gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </Button>
-            </Link>
-            <h1 className="text-2xl font-bold text-slate-900">Empty Slots Inbox</h1>
+            <h1 className="text-2xl font-bold text-slate-900">Slots Livres</h1>
           </div>
 
           {/* Doctor Selector */}

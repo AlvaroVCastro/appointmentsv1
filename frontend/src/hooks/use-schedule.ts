@@ -42,7 +42,7 @@ export function useSchedule() {
         // Continue even if doctor name fails
       }
 
-      const { startDate, endDate } = getNextDays(8);
+      const { startDate, endDate } = getNextDays(14);
       const response = await fetch(
         `/api/glintt/schedule?doctorCode=${encodeURIComponent(codeToUse)}&startDate=${startDate}&endDate=${endDate}`
       );

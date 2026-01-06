@@ -4,8 +4,7 @@ import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, Inbox } from 'lucide-react';
-import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
 import Loader from '@/components/ui/loader';
 import { useSchedule } from '@/hooks/use-schedule';
 import { useReplacementPatients } from '@/hooks/use-replacement-patients';
@@ -133,21 +132,11 @@ function AppointmentsPageContent() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-end gap-4">
-                <div className="flex-1">
-                  <DoctorSelector
-                    onDoctorSelected={handleDoctorSelected}
-                    onDoctorCodeSubmit={handleDoctorCodeSubmit}
-                    initialValue={doctorCode}
-                  />
-                </div>
-                <Link href="/appointments/empty-slots">
-                  <Button variant="outline" className="gap-2 bg-orange-50 border-orange-200 text-orange-700 hover:bg-orange-100">
-                    <Inbox className="h-4 w-4" />
-                    Empty Slots Inbox
-                  </Button>
-                </Link>
-              </div>
+              <DoctorSelector
+                onDoctorSelected={handleDoctorSelected}
+                onDoctorCodeSubmit={handleDoctorCodeSubmit}
+                initialValue={doctorCode}
+              />
               {loading && (
                 <div className="flex items-center gap-2 mt-3 text-sm text-slate-500">
                   <Loader2 className="h-4 w-4 animate-spin" />

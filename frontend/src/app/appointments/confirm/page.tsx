@@ -18,6 +18,9 @@ interface SlotData {
   durationMinutes?: number;
   doctorCode?: string;
   doctorName?: string;
+  // Required for reschedule - from ExternalSearchSlots
+  bookingId?: string;    // BookingID from the slot
+  duration?: string;     // Duration from the slot (e.g., "2008-09-01T00:30:00")
   // If the empty slot has appointment info (e.g., from cancelled appointment)
   appointment?: {
     patientName?: string;
@@ -144,14 +147,67 @@ function ConfirmPageContent() {
     setSaving(true);
 
     try {
+      // ========== STEP 1: Execute reschedule in Glintt ==========
+      console.log('[handleConfirm] Starting Glintt reschedule...');
+
+      // Check for required slot data
+      if (!slotData.bookingId || !slotData.duration) {
+        console.error('[handleConfirm] Missing bookingId or duration from slot data');
+        toast({
+          title: 'Erro de dados',
+          description: 'Dados do slot incompletos (bookingId ou duration em falta). Por favor, selecione novamente.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const reschedulePayload = {
+        appointments: candidateData.appointments.map(apt => ({
+          appointmentId: apt.appointmentId,
+          serviceCode: apt.serviceCode || candidateData.appointments[0]?.serviceCode || '36',
+          medicalActCode: apt.medicalActCode || '1',
+          durationMinutes: apt.durationMinutes || 30,
+        })),
+        patientId: candidateData.patientId,
+        targetSlotDateTime: slotData.dateTime,
+        targetBookingID: slotData.bookingId,
+        targetDuration: slotData.duration,
+        targetDoctorCode: doctorCode,
+      };
+
+      console.log('[handleConfirm] Reschedule payload:', JSON.stringify(reschedulePayload, null, 2));
+
+      const rescheduleRes = await fetch('/api/glintt/reschedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reschedulePayload),
+      });
+
+      const rescheduleData = await rescheduleRes.json();
+
+      if (!rescheduleRes.ok || !rescheduleData.success) {
+        console.error('[handleConfirm] Reschedule failed:', rescheduleData);
+        toast({
+          title: 'Erro no reagendamento',
+          description: rescheduleData.error || 'Não foi possível reagendar no Glintt. Tente novamente.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      console.log('[handleConfirm] Reschedule succeeded:', rescheduleData);
+
+      // ========== STEP 2: Save suggestion record ==========
+      console.log('[handleConfirm] Saving suggestion record...');
+
       // Get data from the first appointment in the block
       const originalAppointment = candidateData.appointments[0];
 
       // Compute impact based on anticipation days
-      const impact = candidateData.anticipationDays <= 3 
-        ? 'high' 
-        : candidateData.anticipationDays <= 7 
-        ? 'medium' 
+      const impact = candidateData.anticipationDays <= 3
+        ? 'high'
+        : candidateData.anticipationDays <= 7
+        ? 'medium'
         : 'low';
 
       const payload = {
@@ -176,21 +232,22 @@ function ConfirmPageContent() {
       });
 
       if (!res.ok) {
-        throw new Error('Failed to save suggestion');
+        // Reschedule succeeded but saving suggestion failed - log warning but don't block
+        console.warn('[handleConfirm] Failed to save suggestion record, but reschedule was successful');
       }
 
       toast({
-        title: 'Sugestão confirmada',
-        description: 'A marcação foi registada com sucesso.',
+        title: 'Reagendamento confirmado',
+        description: 'A marcação foi reagendada com sucesso no Glintt.',
       });
 
       // Navigate back to appointments page with doctor code preserved
       router.push(`/appointments?doctorCode=${encodeURIComponent(doctorCode)}`);
     } catch (error) {
-      console.error('Failed to save suggestion:', error);
+      console.error('[handleConfirm] Error:', error);
       toast({
         title: 'Erro ao confirmar',
-        description: 'Não foi possível registar a marcação. Tente novamente.',
+        description: 'Não foi possível processar o reagendamento. Tente novamente.',
         variant: 'destructive',
       });
     } finally {
@@ -255,8 +312,8 @@ function ConfirmPageContent() {
                   Novo Horário (Slot Livre)
                 </CardTitle>
               </CardHeader>
-              <CardContent className="px-3 pb-2 pt-0">
-                <div className="bg-white rounded-lg p-2 space-y-1.5">
+              <CardContent className="px-3 pb-1.5 pt-0">
+                <div className="bg-white rounded-lg px-2 py-1.5 space-y-1">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-orange-600" />
                     <div>
@@ -290,8 +347,8 @@ function ConfirmPageContent() {
 
                   {/* Show appointment info if it exists (e.g., from cancelled appointment) */}
                   {slotData.appointment && (
-                    <div className="pt-2 border-t border-orange-200">
-                      <div className="text-xs text-orange-700 uppercase tracking-wide mb-1">
+                    <div className="pt-1.5 border-t border-orange-200">
+                      <div className="text-xs text-orange-700 uppercase tracking-wide mb-0.5">
                         Info do Slot
                       </div>
                       {slotData.appointment.patientName && (
@@ -313,8 +370,8 @@ function ConfirmPageContent() {
                   Marcação a Antecipar
                 </CardTitle>
               </CardHeader>
-              <CardContent className="px-3 pb-2 pt-0">
-                <div className="bg-white rounded-lg p-2 space-y-1.5">
+              <CardContent className="px-3 pb-1.5 pt-0">
+                <div className="bg-white rounded-lg px-2 py-1.5 space-y-1">
                   {/* Patient Name */}
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-slate-600" />
@@ -355,7 +412,7 @@ function ConfirmPageContent() {
 
                   {/* Contact Info - inline */}
                   {(candidateData.phoneNumber1 || candidateData.email) && (
-                    <div className="pt-2 border-t border-slate-200 flex flex-wrap gap-3">
+                    <div className="pt-1.5 border-t border-slate-200 flex flex-wrap gap-3">
                       {candidateData.phoneNumber1 && (
                         <a 
                           href={`tel:${candidateData.phoneNumber1}`}
@@ -378,7 +435,7 @@ function ConfirmPageContent() {
                   )}
 
                   {/* Anticipation badge */}
-                  <div className="pt-2 border-t border-slate-200">
+                  <div className="pt-1.5 border-t border-slate-200">
                     <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                       candidateData.anticipationDays <= 3
                         ? 'bg-green-100 text-green-800'
@@ -396,7 +453,7 @@ function ConfirmPageContent() {
 
           {/* Confirmation Section */}
           <Card className="mt-auto shrink-0">
-            <CardContent className="py-3 px-4">
+            <CardContent className="py-2 px-4">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 {/* Checkboxes - horizontal on desktop */}
                 <div className="flex flex-col md:flex-row gap-2 md:gap-5">

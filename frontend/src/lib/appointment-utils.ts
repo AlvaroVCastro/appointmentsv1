@@ -113,16 +113,22 @@ export function formatDateKey(date: Date | string): string {
 /**
  * Returns an array of Date objects for the next `count` days starting from today.
  * Different from getNextDays() which returns {startDate, endDate} strings.
+ * Skips Sundays (getDay() === 0) to only include working days.
  */
 export function getNextDaysArray(count: number): Date[] {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const days: Date[] = [];
+  let dayOffset = 0;
 
-  for (let i = 0; i < count; i++) {
+  while (days.length < count) {
     const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    days.push(d);
+    d.setDate(today.getDate() + dayOffset);
+    // Skip Sundays (getDay() === 0)
+    if (d.getDay() !== 0) {
+      days.push(d);
+    }
+    dayOffset++;
   }
 
   return days;

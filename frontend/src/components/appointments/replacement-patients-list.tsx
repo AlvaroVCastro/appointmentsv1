@@ -64,6 +64,9 @@ export function ReplacementPatientsList({
       endDateTime: selectedSlot.endDateTime,
       durationMinutes: selectedSlot.durationMinutes,
       doctorCode: doctorCode,
+      // Required for reschedule - from ExternalSearchSlots raw slot data
+      bookingId: selectedSlot.slot?.BookingID,
+      duration: selectedSlot.slot?.Duration,
       // Include appointment info if exists (e.g., from cancelled slot)
       appointment: selectedSlot.appointment ? {
         patientName: selectedSlot.appointment.patientName,

@@ -979,3 +979,151 @@ function createBlockFromAppointments(
   };
 }
 
+// ============================================================================
+// RESCHEDULE FUNCTIONALITY
+// ============================================================================
+
+/**
+ * Parameters for rescheduling an appointment.
+ */
+export interface RescheduleParams {
+  appointmentId: string;      // The appointment to reschedule (used as Episode ID)
+  patientId: string;
+  serviceCode: string;
+  medicalActCode: string;
+  // Target slot info
+  targetSlotDateTime: string; // Where to move it (ISO string)
+  targetBookingID: string;    // From ExternalSearchSlots
+  targetDuration: string;     // From ExternalSearchSlots (e.g., "2008-09-01T01:00:00")
+  targetDoctorCode: string;   // HumanResourceCode
+}
+
+/**
+ * Result of a reschedule operation.
+ */
+export interface RescheduleResult {
+  success: boolean;
+  appointmentId: string;      // Original appointment ID
+  newAppointmentId?: string;  // New appointment ID (if returned by Glintt)
+  error?: string;
+}
+
+/**
+ * Reschedules a single appointment to a new slot in Glintt.
+ *
+ * Uses ExternalScheduleAppointment with RescheduleFlag=true and Episode context.
+ * Based on working implementation from backend/glintt-tests/glintt_client.py
+ *
+ * @param params - Reschedule parameters
+ * @returns Result indicating success/failure
+ */
+export async function rescheduleAppointment(params: RescheduleParams): Promise<RescheduleResult> {
+  console.log(`[rescheduleAppointment] Starting reschedule:`);
+  console.log(`  - appointmentId (Episode): ${params.appointmentId}`);
+  console.log(`  - patientId: ${params.patientId}`);
+  console.log(`  - serviceCode: ${params.serviceCode}`);
+  console.log(`  - medicalActCode: ${params.medicalActCode}`);
+  console.log(`  - targetSlotDateTime: ${params.targetSlotDateTime}`);
+  console.log(`  - targetBookingID: ${params.targetBookingID}`);
+  console.log(`  - targetDuration: ${params.targetDuration}`);
+  console.log(`  - targetDoctorCode: ${params.targetDoctorCode}`);
+
+  try {
+    const token = await getAuthToken();
+
+    // Build the appointment data payload (from working test harness)
+    const appointmentData = {
+      ServiceCode: params.serviceCode,
+      MedicalActCode: params.medicalActCode,
+      HumanResourceCode: params.targetDoctorCode,
+      FinancialEntity: {
+        EntityCode: "998",  // Standard value from test harness
+        EntityCard: "",
+        Exemption: "S"
+      },
+      ScheduleDate: params.targetSlotDateTime,
+      Duration: params.targetDuration,
+      Origin: "MALO_ADMIN",
+      BookingID: params.targetBookingID,
+      Patient: {
+        PatientType: "MC",
+        PatientID: params.patientId
+      },
+      // CRITICAL for reschedule:
+      RescheduleFlag: true,
+      Episode: {
+        EpisodeType: "Consultas",
+        EpisodeID: params.appointmentId  // The appointment being rescheduled
+      }
+    };
+
+    // Glintt expects array
+    const requestBody = [appointmentData];
+
+    console.log(`[rescheduleAppointment] Request payload:`, JSON.stringify(requestBody, null, 2));
+
+    const endpoint = `${GLINTT_URL}/Glintt.HMS.CoreWebAPI/api/hms/appointment/ExternalScheduleAppointment`;
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const responseData = await response.json();
+
+    console.log(`[rescheduleAppointment] Response status: ${response.status}`);
+    console.log(`[rescheduleAppointment] Response data:`, JSON.stringify(responseData, null, 2));
+
+    if (!response.ok) {
+      const errorMsg = typeof responseData === 'object'
+        ? (responseData.errorDetails || responseData.message || JSON.stringify(responseData))
+        : String(responseData);
+
+      console.error(`[rescheduleAppointment] HTTP error ${response.status}: ${errorMsg}`);
+
+      return {
+        success: false,
+        appointmentId: params.appointmentId,
+        error: `HTTP ${response.status}: ${errorMsg}`,
+      };
+    }
+
+    // Check for errors in response body
+    if (typeof responseData === 'object') {
+      if (responseData.errorDetails) {
+        console.error(`[rescheduleAppointment] Glintt error:`, responseData.errorDetails);
+        return {
+          success: false,
+          appointmentId: params.appointmentId,
+          error: responseData.errorDetails,
+        };
+      }
+    }
+
+    // Extract new appointment ID if present
+    const newAppointmentId = responseData?.appointmentID || responseData?.AppointmentID;
+
+    console.log(`[rescheduleAppointment] SUCCESS - appointmentId: ${params.appointmentId} -> newAppointmentId: ${newAppointmentId || 'not returned'}`);
+
+    return {
+      success: true,
+      appointmentId: params.appointmentId,
+      newAppointmentId: newAppointmentId || undefined,
+    };
+
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[rescheduleAppointment] Exception:`, errorMsg);
+
+    return {
+      success: false,
+      appointmentId: params.appointmentId,
+      error: errorMsg,
+    };
+  }
+}
+
