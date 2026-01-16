@@ -20,8 +20,8 @@ These SQL files serve as the **source of truth** for the database structure. The
 
 | File | Description |
 |------|-------------|
-| `001_schema_and_table_suggestions.sql` | Creates the schema, `suggestions` table, indexes, and triggers |
-| `002_rls_policies_suggestions.sql` | Configures Row Level Security policies for authenticated users |
+| `001_schema_and_table_reschedules.sql` | Creates the schema, `reschedules` table, indexes, and triggers |
+| `002_rls_policies_reschedules.sql` | Configures Row Level Security policies for the `reschedules` table |
 
 ## How to Apply
 

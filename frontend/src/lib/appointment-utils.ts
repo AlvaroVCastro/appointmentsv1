@@ -52,28 +52,41 @@ export function formatFullDate(dateTime: string) {
 }
 
 /**
+ * Checks if a date falls on a Saturday.
+ */
+function isSaturday(dateTime: string): boolean {
+  return new Date(dateTime).getDay() === 6;
+}
+
+/**
  * Processes merged slots from the API into ScheduleSlot[] for the UI.
- * 
+ *
  * Since merging is now done server-side in glintt-api.ts, this function
  * is a simple mapper that:
  * 1. Defensive filter: skip any blocked slots (Code "B") that slipped through
- * 2. Maps MergedSlot fields to ScheduleSlot fields
- * 3. Sorts by datetime
- * 
+ * 2. Skip Saturdays (clinic doesn't operate on Saturdays)
+ * 3. Maps MergedSlot fields to ScheduleSlot fields
+ * 4. Sorts by datetime
+ *
  * The slots parameter is actually MergedSlot[] from getDoctorSchedule().
  * The appointments parameter is kept for backward compatibility but not used.
  */
 export function processScheduleData(slots: MergedSlot[], _appointments: Appointment[]): ScheduleSlot[] {
   console.log(`[processScheduleData] Processing ${slots.length} pre-merged slots`);
-  
+
   const result: ScheduleSlot[] = [];
-  
+
   for (const slot of slots) {
     // Defensive: skip blocked slots (should already be filtered server-side)
     if (slot.OccupationReason?.Code === 'B') {
       continue;
     }
-    
+
+    // Skip Saturdays - clinic doesn't operate on Saturdays
+    if (isSaturday(slot.SlotDateTime)) {
+      continue;
+    }
+
     // Map MergedSlot to ScheduleSlot
     const scheduleSlot: ScheduleSlot = {
       dateTime: slot.SlotDateTime,
@@ -82,7 +95,7 @@ export function processScheduleData(slots: MergedSlot[], _appointments: Appointm
       appointment: slot.appointment,
       missingAppointmentDetails: slot.missingAppointmentDetails,
     };
-    
+
     result.push(scheduleSlot);
   }
   
@@ -113,7 +126,7 @@ export function formatDateKey(date: Date | string): string {
 /**
  * Returns an array of Date objects for the next `count` days starting from today.
  * Different from getNextDays() which returns {startDate, endDate} strings.
- * Skips Sundays (getDay() === 0) to only include working days.
+ * Skips Saturdays (getDay() === 6) and Sundays (getDay() === 0) to only include weekdays.
  */
 export function getNextDaysArray(count: number): Date[] {
   const today = new Date();
@@ -124,8 +137,8 @@ export function getNextDaysArray(count: number): Date[] {
   while (days.length < count) {
     const d = new Date(today);
     d.setDate(today.getDate() + dayOffset);
-    // Skip Sundays (getDay() === 0)
-    if (d.getDay() !== 0) {
+    // Skip Saturdays (getDay() === 6) and Sundays (getDay() === 0)
+    if (d.getDay() !== 0 && d.getDay() !== 6) {
       days.push(d);
     }
     dayOffset++;

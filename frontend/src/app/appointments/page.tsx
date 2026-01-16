@@ -37,6 +37,11 @@ function AppointmentsPageContent() {
   const {
     selectedSlot,
     replacementCandidates,
+    idealCandidates,
+    allCandidates,
+    hasMoreCandidates,
+    showAllCandidates,
+    toggleShowAllCandidates,
     loadingReplacements,
     error: replacementError,
     handleSlotClick,
@@ -117,8 +122,8 @@ function AppointmentsPageContent() {
 
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>
@@ -167,9 +172,9 @@ function AppointmentsPageContent() {
           )}
 
           {!loading && mergedSchedule.length > 0 && (
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-6 lg:min-h-[700px]">
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_320px] gap-3 md:min-h-[700px]">
               {/* Left column: Schedule */}
-              <Card className="flex flex-col">
+              <Card className="flex flex-col min-w-0 overflow-hidden">
                 <CardHeader className="flex-shrink-0">
                   <CardTitle>Agenda (Próximos 10 Dias)</CardTitle>
                   <CardDescription>
@@ -211,16 +216,16 @@ function AppointmentsPageContent() {
               </Card>
 
               {/* Right column: Replacement Candidates */}
-              <Card className="flex flex-col lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-120px)]">
-                <CardHeader className="flex-shrink-0">
-                  <CardTitle>Sugestões de Antecipação</CardTitle>
-                  <CardDescription>
+              <Card className="flex flex-col md:sticky md:top-4 md:self-start md:h-[calc(100vh-100px)] overflow-hidden">
+                <CardHeader className="flex-shrink-0 pb-3">
+                  <CardTitle className="text-base">Sugestões de Antecipação</CardTitle>
+                  <CardDescription className="text-xs">
                     {selectedSlot
                       ? `Marcações que podem ser antecipadas (ordenadas por proximidade)`
                       : 'Selecione um slot livre para ver potenciais antecipações'}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="flex-1 overflow-hidden">
+                <CardContent className="flex-1 overflow-hidden flex flex-col min-h-0 pt-0">
                   <ReplacementPatientsList
                     candidates={replacementCandidates}
                     loading={loadingReplacements}
@@ -228,6 +233,11 @@ function AppointmentsPageContent() {
                     error={replacementError}
                     selectedSlot={selectedSlot}
                     doctorCode={doctorCode}
+                    idealCandidates={idealCandidates}
+                    allCandidates={allCandidates}
+                    hasMoreCandidates={hasMoreCandidates}
+                    showAllCandidates={showAllCandidates}
+                    onToggleShowAll={toggleShowAllCandidates}
                   />
                 </CardContent>
               </Card>

@@ -33,6 +33,11 @@ function EmptySlotsInboxContent() {
   const {
     selectedSlot,
     replacementCandidates,
+    idealCandidates,
+    allCandidates,
+    hasMoreCandidates,
+    showAllCandidates,
+    toggleShowAllCandidates,
     loadingReplacements,
     error: replacementError,
     handleSlotClick,
@@ -106,8 +111,8 @@ function EmptySlotsInboxContent() {
 
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="space-y-4">
           {/* Header */}
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-bold text-slate-900">Slots Livres</h1>
@@ -161,9 +166,9 @@ function EmptySlotsInboxContent() {
 
           {/* Side-by-side layout: Empty Slots List + Suggestions */}
           {!loading && emptySlots.length > 0 && (
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-6 lg:min-h-[700px]">
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_320px] gap-3 md:min-h-[700px]">
               {/* Left column: Empty Slots */}
-              <Card className="flex flex-col">
+              <Card className="flex flex-col min-w-0 overflow-hidden">
                 <CardHeader className="flex-shrink-0">
                   <CardTitle>
                     {emptySlots.length} Empty Slot{emptySlots.length !== 1 ? 's' : ''} Found
@@ -190,7 +195,14 @@ function EmptySlotsInboxContent() {
                           return (
                             <div
                               key={slot.dateTime}
+                              role="button"
+                              tabIndex={0}
                               onClick={() => handleSlotSelect(slot)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  handleSlotSelect(slot);
+                                }
+                              }}
                               className={`
                                 p-4 rounded-lg border-2 cursor-pointer transition-all
                                 ${isSelected 
@@ -228,16 +240,16 @@ function EmptySlotsInboxContent() {
               </Card>
 
               {/* Right column: Replacement Candidates (Suggestions) */}
-              <Card className="flex flex-col lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-120px)]">
-                <CardHeader className="flex-shrink-0">
-                  <CardTitle>Sugestões de Antecipação</CardTitle>
+              <Card className="flex flex-col md:sticky md:top-4 md:self-start md:h-[calc(100vh-100px)] overflow-hidden">
+                <CardHeader className="flex-shrink-0 pb-3">
+                  <CardTitle className="text-base">Sugestões de Antecipação</CardTitle>
                   <CardDescription>
                     {selectedSlot
                       ? `Marcações que podem ser antecipadas (ordenadas por proximidade)`
                       : 'Selecione um slot livre para ver potenciais antecipações'}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="flex-1 overflow-hidden">
+                <CardContent className="flex-1 overflow-hidden flex flex-col min-h-0 pt-0">
                   <ReplacementPatientsList
                     candidates={replacementCandidates}
                     loading={loadingReplacements}
@@ -245,6 +257,11 @@ function EmptySlotsInboxContent() {
                     error={replacementError}
                     selectedSlot={selectedSlot}
                     doctorCode={doctorCode}
+                    idealCandidates={idealCandidates}
+                    allCandidates={allCandidates}
+                    hasMoreCandidates={hasMoreCandidates}
+                    showAllCandidates={showAllCandidates}
+                    onToggleShowAll={toggleShowAllCandidates}
                   />
                 </CardContent>
               </Card>

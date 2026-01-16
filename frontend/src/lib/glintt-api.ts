@@ -1117,13 +1117,10 @@ export async function rescheduleAppointment(params: RescheduleParams): Promise<R
 
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[rescheduleAppointment] Exception:`, errorMsg);
-
-    return {
+    console.error(`[rescheduleAppointment] Exception:`, errorMsg);    return {
       success: false,
       appointmentId: params.appointmentId,
       error: errorMsg,
     };
   }
 }
-

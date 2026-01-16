@@ -15,6 +15,7 @@ export async function POST(request: Request) {
       newDurationMin: body.newDurationMin,
       anticipationDays: body.anticipationDays,
       impact: body.impact,
+      createdBy: body.createdBy,
     });
 
     // Validate required fields
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
       anticipationDays: body.anticipationDays,
       impact: body.impact,
       notes: body.notes,
+      createdBy: body.createdBy,  // User ID who performed the reschedule
     };
 
     console.log('[POST /api/reschedules] calling createReschedule...');

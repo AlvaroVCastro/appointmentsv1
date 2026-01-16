@@ -4,10 +4,10 @@ import type { ComparableAppointment, ConciliatedBlock } from '@/lib/glintt-api';
 import { buildConciliatedBlocks } from '@/lib/glintt-api';
 
 /**
- * Input type for creating a suggestion via the API.
- * (Mirrors the server-side CreateSuggestionInput type)
+ * Input type for creating a reschedule record via the API.
+ * (Mirrors the server-side CreateRescheduleInput type)
  */
-interface CreateSuggestionPayload {
+interface CreateReschedulePayload {
   doctorCode: string;
   patientId: string;
   patientName?: string;
@@ -15,8 +15,8 @@ interface CreateSuggestionPayload {
   originalDurationMin: number;
   originalServiceCode?: string;
   originalMedicalActCode?: string;
-  suggestedDatetime: string;
-  suggestedDurationMin: number;
+  newDatetime: string;
+  newDurationMin: number;
   anticipationDays: number;
   impact?: string;
   notes?: string | null;
@@ -86,21 +86,149 @@ function isSlotEligibleForSuggestions(slot: ScheduleSlot): boolean {
 }
 
 /**
+ * Calculates the minimum allowed date for suggestions (48-hour gap from now).
+ */
+function getMinimumAllowedDate(): Date {
+  const minDate = new Date();
+  minDate.setHours(minDate.getHours() + 48);
+  return minDate;
+}
+
+/**
+ * Gets dates for the same weekday over the next N weeks.
+ * Example: If slotDate is Friday, returns the next 3 Fridays.
+ */
+function getSameWeekdayDates(slotDate: Date, weeks: number = 3): Date[] {
+  const dates: Date[] = [];
+  const dayOfWeek = slotDate.getDay();
+  
+  for (let week = 1; week <= weeks; week++) {
+    const date = new Date(slotDate);
+    date.setDate(date.getDate() + (7 * week));
+    // Ensure we land on the same day of week
+    const dateDayOfWeek = date.getDay();
+    if (dateDayOfWeek !== dayOfWeek) {
+      const diff = (dayOfWeek - dateDayOfWeek + 7) % 7;
+      date.setDate(date.getDate() + diff);
+    }
+    dates.push(date);
+  }
+  return dates;
+}
+
+/**
+ * Checks if a candidate's appointment matches the target weekday and hour range.
+ */
+function matchesWeekdayAndHour(
+  candidateDateTime: Date,
+  targetWeekday: number,
+  targetHour: number,
+  hourExpansion: number
+): boolean {
+  if (candidateDateTime.getDay() !== targetWeekday) return false;
+  const candidateHour = candidateDateTime.getHours();
+  return candidateHour >= targetHour && candidateHour <= targetHour + hourExpansion;
+}
+
+/**
+ * Finds the top 3 ideal candidates based on:
+ * 1. 48-hour minimum gap
+ * 2. Same weekday as the slot
+ * 3. Same hour (with expansion if needed)
+ * 4. Next 3 weeks priority
+ */
+function findTop3IdealCandidates(
+  allCandidates: ReplacementCandidate[],
+  slotDateTime: Date
+): { ideal: ReplacementCandidate[]; hasMore: boolean } {
+  const minAllowedDate = getMinimumAllowedDate();
+  const slotWeekday = slotDateTime.getDay();
+  const slotHour = slotDateTime.getHours();
+  
+  // Get the next 3 weeks' dates for the same weekday
+  const targetDates = getSameWeekdayDates(slotDateTime, 3);
+  
+  // Filter candidates that pass the 48-hour gap
+  const candidatesAfter48h = allCandidates.filter(c => {
+    const candidateDate = new Date(c.currentAppointmentDateTime);
+    return candidateDate >= minAllowedDate;
+  });
+
+  const ideal: ReplacementCandidate[] = [];
+  
+  // Try with increasing hour expansion until we find 3 or exhaust options
+  // Start with exact hour match, then expand by 1 hour at a time
+  for (let hourExpansion = 0; hourExpansion <= 8 && ideal.length < 3; hourExpansion++) {
+    for (const candidate of candidatesAfter48h) {
+      if (ideal.length >= 3) break;
+      if (ideal.some(c => c.blockId === candidate.blockId)) continue; // Already added
+      
+      const candidateDate = new Date(candidate.currentAppointmentDateTime);
+      
+      // Check if this candidate is on one of our target dates (same weekday, next 3 weeks)
+      const isOnTargetWeekday = targetDates.some(targetDate => {
+        const sameDay = candidateDate.getDate() === targetDate.getDate() &&
+                        candidateDate.getMonth() === targetDate.getMonth() &&
+                        candidateDate.getFullYear() === targetDate.getFullYear();
+        return sameDay;
+      });
+      
+      // If on target weekday, check hour match with current expansion
+      if (isOnTargetWeekday) {
+        const candidateHour = candidateDate.getHours();
+        const hourMatches = candidateHour >= slotHour && candidateHour <= slotHour + hourExpansion;
+        if (hourMatches) {
+          ideal.push(candidate);
+        }
+      }
+    }
+    
+    // If still not 3, expand to match same weekday in any week (not just target 3 weeks)
+    if (ideal.length < 3 && hourExpansion > 0) {
+      for (const candidate of candidatesAfter48h) {
+        if (ideal.length >= 3) break;
+        if (ideal.some(c => c.blockId === candidate.blockId)) continue;
+        
+        const candidateDate = new Date(candidate.currentAppointmentDateTime);
+        
+        if (matchesWeekdayAndHour(candidateDate, slotWeekday, slotHour, hourExpansion)) {
+          ideal.push(candidate);
+        }
+      }
+    }
+  }
+
+  // Sort ideal candidates by date (soonest first)
+  ideal.sort((a, b) => {
+    return new Date(a.currentAppointmentDateTime).getTime() - 
+           new Date(b.currentAppointmentDateTime).getTime();
+  });
+
+  return {
+    ideal: ideal.slice(0, 3),
+    hasMore: candidatesAfter48h.length > ideal.length,
+  };
+}
+
+/**
  * Hook for managing replacement patients recommendations.
  * Implements the recommendation engine with:
- * - 30-day time window
- * - Conciliated (aggregated) appointment blocks
- * - Duration compatibility filtering
- * - Forward-in-time only (block.startDateTime > slot.dateTime)
- * - Sorting by "coming up sooner"
- * - Top 20 candidates limit
+ * - 48-hour minimum gap
+ * - Top 3 ideal candidates (same weekday/hour priority)
+ * - All candidates available via "Ver todas"
  */
 export function useReplacementPatients(doctorCode: string) {
   const [selectedSlot, setSelectedSlot] = useState<ScheduleSlot | null>(null);
-  const [replacementCandidates, setReplacementCandidates] = useState<ReplacementCandidate[]>([]);
+  const [idealCandidates, setIdealCandidates] = useState<ReplacementCandidate[]>([]);
+  const [allCandidates, setAllCandidates] = useState<ReplacementCandidate[]>([]);
+  const [hasMoreCandidates, setHasMoreCandidates] = useState(false);
+  const [showAllCandidates, setShowAllCandidates] = useState(false);
   const [loadingReplacements, setLoadingReplacements] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savingCandidateId, setSavingCandidateId] = useState<string | null>(null);
+
+  // Backwards compatibility: replacementCandidates returns ideal or all based on showAll flag
+  const replacementCandidates = showAllCandidates ? allCandidates : idealCandidates;
 
   /**
    * Handles a slot click. If the slot is eligible (Empty/Rescheduled/Annulled),
@@ -116,7 +244,10 @@ export function useReplacementPatients(doctorCode: string) {
       // Clear suggestions for non-eligible (occupied) slots
       console.log('[handleSlotClick] Slot is occupied, clearing suggestions');
       setSelectedSlot(null);
-      setReplacementCandidates([]);
+      setIdealCandidates([]);
+      setAllCandidates([]);
+      setHasMoreCandidates(false);
+      setShowAllCandidates(false);
       setError(null);
     }
   };
@@ -138,7 +269,10 @@ export function useReplacementPatients(doctorCode: string) {
     setLoadingReplacements(true);
     setSelectedSlot(slot);
     setError(null);
-    setReplacementCandidates([]); // Clear previous candidates while loading
+    setIdealCandidates([]);
+    setAllCandidates([]);
+    setHasMoreCandidates(false);
+    setShowAllCandidates(false);
 
     try {
       // Extract slot information
@@ -227,14 +361,26 @@ export function useReplacementPatients(doctorCode: string) {
         return deltaA - deltaB;
       });
 
-      // Step 5: Limit to top 20
-      const top20 = eligibleBlocks.slice(0, 20);
+      // Step 5: Fetch patient details for all eligible blocks
+      const allEnrichedCandidates = await enrichBlocksWithPatientDetails(eligibleBlocks, nowTime);
 
-      // Step 6: Fetch patient details for each candidate
-      const candidates = await enrichBlocksWithPatientDetails(top20, nowTime);
+      // Step 6: Apply 48-hour filter for all candidates
+      const minAllowedDate = getMinimumAllowedDate();
+      const filteredAllCandidates = allEnrichedCandidates.filter(c => {
+        const candidateDate = new Date(c.currentAppointmentDateTime);
+        return candidateDate >= minAllowedDate;
+      });
 
-      console.log('[loadReplacementPatients] Final candidates:', candidates.length);
-      setReplacementCandidates(candidates);
+      console.log('[loadReplacementPatients] After 48h filter:', filteredAllCandidates.length, 'candidates');
+
+      // Step 7: Find top 3 ideal candidates
+      const { ideal, hasMore } = findTop3IdealCandidates(allEnrichedCandidates, selectedSlotDateTime);
+
+      console.log('[loadReplacementPatients] Ideal:', ideal.length, 'All:', filteredAllCandidates.length);
+
+      setIdealCandidates(ideal);
+      setAllCandidates(filteredAllCandidates);
+      setHasMoreCandidates(hasMore || filteredAllCandidates.length > ideal.length);
 
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load replacement candidates';
@@ -250,17 +396,28 @@ export function useReplacementPatients(doctorCode: string) {
    */
   const clearSelection = () => {
     setSelectedSlot(null);
-    setReplacementCandidates([]);
+    setIdealCandidates([]);
+    setAllCandidates([]);
+    setHasMoreCandidates(false);
+    setShowAllCandidates(false);
     setError(null);
   };
 
   /**
-   * Saves a replacement candidate as a suggestion in the database.
-   * Returns true on success, false on failure.
+   * Toggle between showing ideal candidates and all candidates.
    */
-  const saveSuggestion = async (candidate: ReplacementCandidate): Promise<boolean> => {
+  const toggleShowAllCandidates = () => {
+    setShowAllCandidates(prev => !prev);
+  };
+
+  /**
+   * Saves a reschedule record in the database.
+   * Returns true on success, false on failure.
+   * Note: This is typically called from the confirm page after Glintt reschedule succeeds.
+   */
+  const saveReschedule = async (candidate: ReplacementCandidate): Promise<boolean> => {
     if (!selectedSlot || !doctorCode) {
-      console.warn('[saveSuggestion] missing selectedSlot or doctorCode');
+      console.warn('[saveReschedule] missing selectedSlot or doctorCode');
       return false;
     }
 
@@ -274,15 +431,15 @@ export function useReplacementPatients(doctorCode: string) {
       const impact = computeImpactFromAnticipation(candidate.anticipationDays);
 
       // Get duration from selected slot (use pre-computed if available from merged slots)
-      let suggestedDurationMin: number;
+      let newDurationMin: number;
       if (selectedSlot.durationMinutes !== undefined) {
-        suggestedDurationMin = selectedSlot.durationMinutes;
+        newDurationMin = selectedSlot.durationMinutes;
       } else {
         const slotDuration = selectedSlot.slot?.Duration || selectedSlot.appointment?.duration || '00:30:00';
-        suggestedDurationMin = parseDurationToMinutes(slotDuration);
+        newDurationMin = parseDurationToMinutes(slotDuration);
       }
 
-      const payload: CreateSuggestionPayload = {
+      const payload: CreateReschedulePayload = {
         doctorCode,
         patientId: candidate.patientId,
         patientName: candidate.patientName,
@@ -290,33 +447,33 @@ export function useReplacementPatients(doctorCode: string) {
         originalDurationMin: candidate.currentDurationMinutes,
         originalServiceCode: originalAppointment?.serviceCode,
         originalMedicalActCode: originalAppointment?.medicalActCode,
-        suggestedDatetime: selectedSlot.dateTime,
-        suggestedDurationMin,
+        newDatetime: selectedSlot.dateTime,
+        newDurationMin,
         anticipationDays: candidate.anticipationDays,
         impact,
         notes: null,
       };
 
-      const res = await fetch('/api/suggestions', {
+      const res = await fetch('/api/reschedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        console.error('[saveSuggestion] HTTP error', res.status);
+        console.error('[saveReschedule] HTTP error', res.status);
         return false;
       }
 
       const json = await res.json();
-      if (!json.suggestion) {
-        console.error('[saveSuggestion] missing suggestion in response');
+      if (!json.reschedule) {
+        console.error('[saveReschedule] missing reschedule in response');
         return false;
       }
 
       return true;
     } catch (err) {
-      console.error('[saveSuggestion] exception', err);
+      console.error('[saveReschedule] exception', err);
       return false;
     } finally {
       setSavingCandidateId(null);
@@ -325,14 +482,19 @@ export function useReplacementPatients(doctorCode: string) {
 
   return {
     selectedSlot,
-    replacementCandidates,
+    replacementCandidates,    // Returns ideal or all based on showAllCandidates
+    idealCandidates,          // Top 3 ideal candidates
+    allCandidates,            // All eligible candidates (after 48h filter)
+    hasMoreCandidates,        // Whether there are more than the ideal 3
+    showAllCandidates,        // Current view mode
+    toggleShowAllCandidates,  // Toggle between ideal and all
     loadingReplacements,
     error,
-    handleSlotClick,        // New: unified click handler
-    loadReplacementPatients, // Keep for direct use if needed
+    handleSlotClick,
+    loadReplacementPatients,
     clearSelection,
-    saveSuggestion,         // Save a candidate as a suggestion
-    savingCandidateId,      // ID of the candidate currently being saved
+    saveReschedule,
+    savingCandidateId,
   };
 }
 

@@ -5,7 +5,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 /**
  * Creates a server-side Supabase client for use in API routes and server components.
  * 
- * Uses the 'appointments_app' schema for the suggestions table.
+ * Uses the 'appointments_app' schema for the reschedules table.
  * 
  * Uses SUPABASE_SERVICE_ROLE_KEY which bypasses RLS for trusted server-side operations.
  * IMPORTANT: Never expose this key to the client.
@@ -27,7 +27,7 @@ export function getSupabaseServerClient(): SupabaseClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return createClient(supabaseUrl, supabaseKey, {
     auth: { persistSession: false },
-    db: { schema: 'appointments_app' }, // Use appointments_app schema for suggestions table
+    db: { schema: 'appointments_app' }, // Use appointments_app schema for reschedules table
   }) as unknown as SupabaseClient;
 }
 

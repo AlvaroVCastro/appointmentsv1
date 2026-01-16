@@ -27,6 +27,7 @@ export interface CreateRescheduleInput {
   anticipationDays: number;
   impact?: string;                 // 'high' | 'medium' | 'low'
   notes?: string;
+  createdBy?: string;              // User ID (auth.users.id) who performed the reschedule
 }
 
 /**
@@ -35,6 +36,7 @@ export interface CreateRescheduleInput {
 export interface Reschedule extends CreateRescheduleInput {
   id: string;                      // uuid
   status: RescheduleStatus;
+  createdBy?: string;              // User ID who performed the reschedule
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +62,7 @@ export async function createReschedule(input: CreateRescheduleInput): Promise<Re
     status: 'completed',  // Reschedule already happened in Glintt
     impact: input.impact ?? null,
     notes: input.notes ?? null,
+    created_by: input.createdBy ?? null,  // User who performed the reschedule
   };
 
   // Debug: Log what we're inserting
@@ -71,6 +74,7 @@ export async function createReschedule(input: CreateRescheduleInput): Promise<Re
     anticipation_days: rowToInsert.anticipation_days,
     original_duration_min: rowToInsert.original_duration_min,
     new_duration_min: rowToInsert.new_duration_min,
+    created_by: rowToInsert.created_by,
   });
 
   // Schema is set at client level (appointments_app)
@@ -113,6 +117,7 @@ export async function createReschedule(input: CreateRescheduleInput): Promise<Re
     status: data.status as RescheduleStatus,
     impact: data.impact,
     notes: data.notes,
+    createdBy: data.created_by,
     created_at: data.created_at,
     updated_at: data.updated_at,
   };
@@ -165,6 +170,7 @@ export async function updateRescheduleStatus(
     status: data.status as RescheduleStatus,
     impact: data.impact,
     notes: data.notes,
+    createdBy: data.created_by,
     created_at: data.created_at,
     updated_at: data.updated_at,
   };

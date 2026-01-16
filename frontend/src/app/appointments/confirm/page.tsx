@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, Calendar, Clock, User, Phone, Mail, CheckCircle2, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 
 /**
  * Data structure for the empty slot (new suggested time)
@@ -197,8 +198,12 @@ function ConfirmPageContent() {
 
       console.log('[handleConfirm] Reschedule succeeded:', rescheduleData);
 
-      // ========== STEP 2: Save suggestion record ==========
-      console.log('[handleConfirm] Saving suggestion record...');
+      // ========== STEP 2: Save reschedule record to database ==========
+      console.log('[handleConfirm] Saving reschedule record to database...');
+
+      // Get the current user's ID for created_by
+      const supabase = createSupabaseBrowserClient();
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
 
       // Get data from the first appointment in the block
       const originalAppointment = candidateData.appointments[0];
@@ -218,22 +223,25 @@ function ConfirmPageContent() {
         originalDurationMin: candidateData.currentDurationMinutes,
         originalServiceCode: originalAppointment?.serviceCode,
         originalMedicalActCode: originalAppointment?.medicalActCode,
-        suggestedDatetime: slotData.dateTime,
-        suggestedDurationMin: slotData.durationMinutes || 30,
+        newDatetime: slotData.dateTime,
+        newDurationMin: slotData.durationMinutes || 30,
         anticipationDays: candidateData.anticipationDays,
         impact,
         notes: null,
+        createdBy: currentUser?.id,  // Track who performed the reschedule
       };
 
-      const res = await fetch('/api/suggestions', {
+      const res = await fetch('/api/reschedules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        // Reschedule succeeded but saving suggestion failed - log warning but don't block
-        console.warn('[handleConfirm] Failed to save suggestion record, but reschedule was successful');
+        // Reschedule succeeded but saving record failed - log warning but don't block
+        console.warn('[handleConfirm] Failed to save reschedule record to database, but Glintt reschedule was successful');
+      } else {
+        console.log('[handleConfirm] Reschedule record saved to database successfully');
       }
 
       toast({
