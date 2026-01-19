@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2 } from 'lucide-react';
+import { Loader2, User } from 'lucide-react';
 import Loader from '@/components/ui/loader';
 import { useSchedule } from '@/hooks/use-schedule';
-import { useReplacementPatients, type ReplacementCandidate } from '@/hooks/use-replacement-patients';
-import { useToast } from '@/hooks/use-toast';
+import { useReplacementPatients } from '@/hooks/use-replacement-patients';
 import { SlotCard } from '@/components/appointments/slot-card';
 import { ReplacementPatientsList } from '@/components/appointments/replacement-patients-list';
 import { DayStrip } from '@/components/appointments/day-strip';
@@ -20,7 +20,18 @@ import {
   mergeConsecutiveEmptySlots,
 } from '@/lib/appointment-utils';
 
-export default function AppointmentsPage() {
+interface UserProfile {
+  id: string;
+  fullName: string;
+  email: string;
+  role: string;
+  doctorCode: string | null;
+  isAdmin: boolean;
+  isDoctor: boolean;
+}
+
+function AppointmentsPageContent() {
+  const searchParams = useSearchParams();
   const {
     doctorCode,
     doctorName,
@@ -35,15 +46,20 @@ export default function AppointmentsPage() {
   const {
     selectedSlot,
     replacementCandidates,
+    idealCandidates,
+    allCandidates,
+    hasMoreCandidates,
+    showAllCandidates,
+    toggleShowAllCandidates,
     loadingReplacements,
     error: replacementError,
     handleSlotClick,
     clearSelection,
-    saveSuggestion,
-    savingCandidateId,
   } = useReplacementPatients(doctorCode);
 
-  const { toast } = useToast();
+  // User profile state
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   // Day strip state
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -52,7 +68,6 @@ export default function AppointmentsPage() {
   const tenDays = useMemo(() => getNextDaysArray(10), []);
 
   // Merge consecutive empty slots into groups
-  // This is the key transformation: 3 consecutive 30-min empty slots become 1 x 90-min slot
   const mergedSchedule = useMemo(() => {
     if (!schedule || schedule.length === 0) return [];
     return mergeConsecutiveEmptySlots(schedule);
@@ -78,10 +93,45 @@ export default function AppointmentsPage() {
     return getSlotsForDate(mergedSchedule, selectedDate);
   }, [mergedSchedule, selectedDate]);
 
+  // Load user profile on mount
+  useEffect(() => {
+    async function loadProfile() {
+      try {
+        const response = await fetch('/api/dashboard/profile');
+        if (response.ok) {
+          const data = await response.json();
+          setProfile(data.profile);
+        }
+      } catch (error) {
+        console.error('Error loading profile:', error);
+      } finally {
+        setProfileLoading(false);
+      }
+    }
+    loadProfile();
+  }, []);
+
+  // Auto-load doctor's schedule if they're a doctor (not admin)
+  useEffect(() => {
+    if (!profileLoading && profile && !profile.isAdmin && profile.doctorCode && !doctorCode && !loading) {
+      loadSchedule(profile.doctorCode);
+    }
+  }, [profileLoading, profile, doctorCode, loading, loadSchedule]);
+
+  // Auto-load doctor from URL params (e.g., after returning from confirmation page)
+  useEffect(() => {
+    const urlDoctorCode = searchParams.get('doctorCode');
+    if (urlDoctorCode && !doctorCode && !loading && !profileLoading) {
+      // Only allow URL param for admins or if it matches the user's doctor code
+      if (profile?.isAdmin || urlDoctorCode === profile?.doctorCode) {
+        loadSchedule(urlDoctorCode);
+      }
+    }
+  }, [searchParams, doctorCode, loading, loadSchedule, profileLoading, profile]);
+
   // Auto-select the first day that has slots when schedule loads
   useEffect(() => {
     if (!loading && mergedSchedule.length > 0 && !selectedDate) {
-      // Find the first day that has slots
       const firstDayWithSlots = tenDays.find(day => {
         return getSlotsForDate(mergedSchedule, day).length > 0;
       });
@@ -90,72 +140,94 @@ export default function AppointmentsPage() {
   }, [loading, mergedSchedule.length, selectedDate, tenDays, mergedSchedule]);
 
   const handleToggleExpansion = (slotDateTime: string, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent triggering handleSlotClick
+    event.stopPropagation();
     toggleSlotExpansion(slotDateTime);
   };
 
-  // Handle doctor selection from dropdown
+  // Handle doctor selection from dropdown (admin only)
   const handleDoctorSelected = (doctor: DoctorSearchResult) => {
     const code = doctor.code || doctor.id;
-    setSelectedDate(null); // Reset selected date for new doctor
-    clearSelection();      // Clear replacement candidates when changing doctor
-    loadSchedule(code);    // Pass the code directly to avoid stale closure
+    setSelectedDate(null);
+    clearSelection();
+    loadSchedule(code);
   };
 
-  // Handle direct doctor code submission (Enter on numeric input)
+  // Handle direct doctor code submission (admin only)
   const handleDoctorCodeSubmit = (code: string) => {
-    setSelectedDate(null); // Reset selected date for new doctor
-    clearSelection();      // Clear replacement candidates when changing doctor
-    loadSchedule(code);    // Pass the code directly to avoid stale closure
+    setSelectedDate(null);
+    clearSelection();
+    loadSchedule(code);
   };
 
-  // Handle saving a suggestion to the database
-  const handleSaveSuggestion = async (candidate: ReplacementCandidate) => {
-    const ok = await saveSuggestion(candidate);
-    if (ok) {
-      toast({
-        title: 'Sugestão guardada',
-        description: 'A sugestão foi guardada como pendente.',
-      });
-    } else {
-      toast({
-        title: 'Erro ao guardar sugestão',
-        description: 'Tente novamente mais tarde.',
-        variant: 'destructive',
-      });
-    }
-    return ok;
-  };
+  const isAdmin = profile?.isAdmin;
+  const showDoctorSelector = isAdmin; // Only admins can search for doctors
+
+  // Show loading while profile is being fetched
+  if (profileLoading) {
+    return (
+      <div className="h-full flex items-center justify-center bg-slate-50">
+        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+
+  // Show message if user is not a doctor and not an admin
+  if (!isAdmin && !profile?.doctorCode) {
+    return (
+      <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
+        <div className="flex-1 flex items-center justify-center p-4">
+          <Card className="max-w-md">
+            <CardContent className="pt-6">
+              <div className="text-center">
+                <User className="h-12 w-12 text-slate-300 mx-auto mb-4" />
+                <h2 className="text-lg font-semibold text-slate-900 mb-2">
+                  Código de Médico Não Associado
+                </h2>
+                <p className="text-slate-500">
+                  O seu perfil não tem um código de médico associado.
+                  Contacte um administrador para associar o seu código.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-7xl mx-auto space-y-6">
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>
-                {doctorName ? `Doctor: ${doctorName}` : 'Doctor Schedule Manager'}
+                {doctorName ? `Médico: ${doctorName}` : 'Gestor de Agenda'}
               </CardTitle>
               <CardDescription>
                 {doctorName 
-                  ? `View schedules and find replacement patients for empty slots`
-                  : 'View doctor schedules and find replacement patients for empty slots'
+                  ? 'Ver agenda e encontrar pacientes para antecipar nos slots livres'
+                  : isAdmin 
+                    ? 'Pesquise um médico para ver a sua agenda'
+                    : 'A carregar a sua agenda...'
                 }
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <DoctorSelector
-                onDoctorSelected={handleDoctorSelected}
-                onDoctorCodeSubmit={handleDoctorCodeSubmit}
-                initialValue={doctorCode}
-              />
-              {loading && (
-                <div className="flex items-center gap-2 mt-3 text-sm text-slate-500">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading schedule...
-                </div>
-              )}
-            </CardContent>
+            {showDoctorSelector && (
+              <CardContent>
+                <DoctorSelector
+                  onDoctorSelected={handleDoctorSelected}
+                  onDoctorCodeSubmit={handleDoctorCodeSubmit}
+                  initialValue={doctorCode}
+                />
+                {loading && (
+                  <div className="flex items-center gap-2 mt-3 text-sm text-slate-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    A carregar agenda...
+                  </div>
+                )}
+              </CardContent>
+            )}
           </Card>
 
           {error && (
@@ -166,26 +238,26 @@ export default function AppointmentsPage() {
             </Card>
           )}
 
-          {loading && <Loader message="Loading schedule..." className="min-h-[400px]" />}
+          {loading && <Loader message="A carregar agenda..." className="min-h-[400px]" />}
 
           {!loading && !error && mergedSchedule.length === 0 && doctorCode && (
             <Card>
               <CardContent className="pt-6">
                 <p className="text-center text-slate-500">
-                  No schedule configuration found for this doctor in the selected period.
+                  Nenhuma configuração de agenda encontrada para este médico no período selecionado.
                 </p>
               </CardContent>
             </Card>
           )}
 
           {!loading && mergedSchedule.length > 0 && (
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-6 lg:min-h-[700px]">
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_320px] gap-3 md:min-h-[700px]">
               {/* Left column: Schedule */}
-              <Card className="flex flex-col">
+              <Card className="flex flex-col min-w-0 overflow-hidden">
                 <CardHeader className="flex-shrink-0">
-                  <CardTitle>Schedule (Next 10 Days)</CardTitle>
+                  <CardTitle>Agenda (Próximos 10 Dias)</CardTitle>
                   <CardDescription>
-                    Click on an empty, rescheduled, or annulled slot to find replacement patients
+                    Clique num slot livre para encontrar pacientes que podem antecipar
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex-1 flex flex-col min-h-0">
@@ -203,7 +275,7 @@ export default function AppointmentsPage() {
                   <div className="flex-1 overflow-y-auto space-y-2 pr-1">
                     {slotsForSelectedDate.length === 0 ? (
                       <p className="text-center text-slate-500 py-8">
-                        No slots available for this day
+                        Sem slots disponíveis para este dia
                       </p>
                     ) : (
                       slotsForSelectedDate.map((slot, index) => (
@@ -223,23 +295,28 @@ export default function AppointmentsPage() {
               </Card>
 
               {/* Right column: Replacement Candidates */}
-              <Card className="flex flex-col lg:sticky lg:top-6 lg:self-start lg:max-h-[calc(100vh-120px)]">
-                <CardHeader className="flex-shrink-0">
-                  <CardTitle>Replacement Candidates</CardTitle>
-                  <CardDescription>
+              <Card className="flex flex-col md:sticky md:top-4 md:self-start md:h-[calc(100vh-100px)] overflow-hidden">
+                <CardHeader className="flex-shrink-0 pb-3">
+                  <CardTitle className="text-base">Sugestões de Antecipação</CardTitle>
+                  <CardDescription className="text-xs">
                     {selectedSlot
-                      ? `Appointments that can be moved earlier (sorted by proximity)`
-                      : 'Select an empty slot to see potential replacements'}
+                      ? `Marcações que podem ser antecipadas (ordenadas por proximidade)`
+                      : 'Selecione um slot livre para ver potenciais antecipações'}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="flex-1 overflow-hidden">
+                <CardContent className="flex-1 overflow-hidden flex flex-col min-h-0 pt-0">
                   <ReplacementPatientsList
                     candidates={replacementCandidates}
                     loading={loadingReplacements}
                     hasSelection={!!selectedSlot}
                     error={replacementError}
-                    onSaveSuggestion={handleSaveSuggestion}
-                    savingCandidateId={savingCandidateId}
+                    selectedSlot={selectedSlot}
+                    doctorCode={doctorCode}
+                    idealCandidates={idealCandidates}
+                    allCandidates={allCandidates}
+                    hasMoreCandidates={hasMoreCandidates}
+                    showAllCandidates={showAllCandidates}
+                    onToggleShowAll={toggleShowAllCandidates}
                   />
                 </CardContent>
               </Card>
@@ -250,3 +327,17 @@ export default function AppointmentsPage() {
     </div>
   );
 }
+
+function AppointmentsPageWrapper() {
+  return (
+    <Suspense fallback={
+      <div className="h-full flex items-center justify-center bg-slate-50">
+        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      </div>
+    }>
+      <AppointmentsPageContent />
+    </Suspense>
+  );
+}
+
+export default AppointmentsPageWrapper;

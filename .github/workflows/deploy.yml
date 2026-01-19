@@ -1,0 +1,55 @@
+name: Deploy to Supabase
+
+on:
+  push:
+    branches: [master, main]  # Auto-deploy to production
+  workflow_dispatch:  # Manual deployment
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+
+jobs:
+  deploy-production:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+          
+      - name: Deploy to Production
+        run: |
+          echo "🚀 Deploying to PRODUCTION environment..."
+          supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          
+          echo "📦 Deploying Edge Functions..."
+          supabase functions deploy compute-dashboard-stats --no-verify-jwt
+          
+          echo "📋 Pushing database migrations..."
+          supabase db push
+          
+          echo "✅ Production deployment complete!"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          
+      - name: Update Schema Reference
+        run: |
+          echo "📋 Updating schema reference..."
+          mkdir -p supabase/current_schema
+          supabase db dump --linked -f supabase/current_schema/current_full_schema.sql
+          echo "✅ Schema reference updated!"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}

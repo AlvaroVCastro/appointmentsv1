@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { appConfig } from '@/config/app';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 
 export default function LoginPage() {
   const [isSigningIn, setIsSigningIn] = useState(false);
@@ -13,10 +14,22 @@ export default function LoginPage() {
     try {
       setIsSigningIn(true);
       setError(null);
-      // TODO: Implement authentication
-      console.log('Authentication - to be implemented');
-      setError('Autenticação ainda não implementada');
-      setIsSigningIn(false);
+      
+      const supabase = createSupabaseBrowserClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'azure',
+        options: {
+          scopes: 'email profile openid',
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+      
+      if (error) {
+        console.error('OAuth error:', error);
+        setError('Falha ao iniciar sessão. Por favor, tente novamente.');
+        setIsSigningIn(false);
+      }
+      // Note: On success, browser redirects - no need to setIsSigningIn(false)
     } catch (err) {
       console.error('Sign in error:', err);
       setError('Falha ao iniciar sessão. Por favor, tente novamente.');
@@ -60,7 +73,15 @@ export default function LoginPage() {
                   A entrar...
                 </div>
               ) : (
-              'Entrar'
+                <div className="flex items-center justify-center gap-2">
+                  <svg className="h-5 w-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+                    <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+                    <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+                    <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+                  </svg>
+                  Entrar com Microsoft
+                </div>
               )}
             </Button>
 
@@ -80,4 +101,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

@@ -5,22 +5,14 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 /**
  * Creates a server-side Supabase client for use in API routes and server components.
  * 
- * Uses the 'appointments_app' schema for the suggestions table.
+ * Uses the 'appointments_app' schema for the reschedules table.
  * 
- * Currently uses NEXT_PUBLIC_SUPABASE_ANON_KEY because RLS is disabled in the test project.
- * TODO: Switch to SUPABASE_SERVICE_ROLE_KEY for production with RLS enabled.
+ * Uses SUPABASE_SERVICE_ROLE_KEY which bypasses RLS for trusted server-side operations.
+ * IMPORTANT: Never expose this key to the client.
  */
 export function getSupabaseServerClient(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  // Debug: Log env var status (not the values for security)
-  console.log('[getSupabaseServerClient] env check:', {
-    hasUrl: !!supabaseUrl,
-    urlPrefix: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'MISSING',
-    hasKey: !!supabaseKey,
-    keyPrefix: supabaseKey ? supabaseKey.substring(0, 20) + '...' : 'MISSING',
-  });
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl) {
     console.error('[getSupabaseServerClient] NEXT_PUBLIC_SUPABASE_URL is not set!');
@@ -28,14 +20,14 @@ export function getSupabaseServerClient(): SupabaseClient {
   }
 
   if (!supabaseKey) {
-    console.error('[getSupabaseServerClient] NEXT_PUBLIC_SUPABASE_ANON_KEY is not set!');
-    throw new Error('Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable');
+    console.error('[getSupabaseServerClient] SUPABASE_SERVICE_ROLE_KEY is not set!');
+    throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return createClient(supabaseUrl, supabaseKey, {
     auth: { persistSession: false },
-    db: { schema: 'appointments_app' }, // Use appointments_app schema for suggestions table
+    db: { schema: 'appointments_app' }, // Use appointments_app schema for reschedules table
   }) as unknown as SupabaseClient;
 }
 

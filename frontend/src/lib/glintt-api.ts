@@ -35,6 +35,7 @@ export interface Appointment {
   patientId: string;
   patientName?: string;
   scheduleDate: string;
+  appointmentHour: string;  // The actual appointment time - used for slot matching
   duration: string;
   serviceCode: string;
   medicalActCode: string;
@@ -43,6 +44,13 @@ export interface Appointment {
   episodeType?: string;
   status?: string;
   observations?: string;
+}
+
+// Merged slot with appointment details attached
+export interface MergedSlot extends Slot {
+  isOccupied: boolean;
+  appointment?: Appointment;
+  missingAppointmentDetails?: boolean;
 }
 
 // Raw API response type for appointments
@@ -89,6 +97,20 @@ export interface Patient {
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
+// ============================================================================
+// HELPER: Minute-precision key for slot/appointment matching (timezone-safe)
+// ============================================================================
+
+/**
+ * Extract minute-precision key from datetime string.
+ * "2025-12-22T10:00:00" -> "2025-12-22T10:00"
+ * Uses string slicing to avoid timezone conversion issues.
+ */
+function minuteKey(dt?: string): string | null {
+  if (!dt || dt.length < 16) return null;
+  return dt.slice(0, 16); // "YYYY-MM-DDTHH:mm"
+}
+
 export async function getAuthToken(): Promise<string> {
   // Check if cached token is still valid
   if (cachedToken && cachedToken.expiresAt > Date.now()) {
@@ -128,38 +150,33 @@ export async function getAuthToken(): Promise<string> {
   return data.access_token;
 }
 
-export async function getDoctorSchedule(
+// ============================================================================
+// CORE SCHEDULE PIPELINE: New implementation with deterministic merging
+// ============================================================================
+
+/**
+ * Fetches SCHEDULED appointments for a doctor with medicalAct=1.
+ * Returns appointments and unique serviceCodes found.
+ */
+async function getScheduledAppointments(
   doctorCode: string,
   startDate: string,
   endDate: string
-): Promise<{ slots: Slot[]; appointments: Appointment[] }> {
+): Promise<{ appointments: Appointment[]; serviceCodes: Set<string> }> {
   const token = await getAuthToken();
   
-  // Step 1: Discover service codes for this doctor
-  const serviceCodes = await getServiceCodesForDoctor(doctorCode);
-  
-  // If no service codes found, return empty schedule (no fallback)
-  if (serviceCodes.length === 0) {
-    console.warn(
-      `[getDoctorSchedule] No service codes found for doctor ${doctorCode}. Returning empty schedule.`
-    );
-    return {
-      slots: [],
-      appointments: [],
-    };
-  }
-
-  // Step 2: Get appointments
   const appointmentsUrl = `${GLINTT_URL}/Hms.OutPatient.Api/hms/outpatient/Appointment`;
   const appointmentsParams = new URLSearchParams({
     beginDate: new Date(startDate).toISOString(),
     endDate: new Date(endDate + 'T23:59:59').toISOString(),
     skip: '0',
-    take: '100',
+    take: '500',
     doctorCode,
+    status: 'SCHEDULED',
+    medicalAct: '1',
   });
 
-  const appointmentsResponse = await fetch(
+  const response = await fetch(
     `${appointmentsUrl}?${appointmentsParams.toString()}`,
     {
       headers: {
@@ -169,69 +186,318 @@ export async function getDoctorSchedule(
     }
   );
 
-  let appointments: Appointment[] = [];
-  if (appointmentsResponse.ok) {
-    const appointmentsData = await appointmentsResponse.json() as RawAppointmentResponse[];
-    appointments = (appointmentsData || []).map((apt: RawAppointmentResponse) => ({
+  const serviceCodes = new Set<string>();
+  const appointments: Appointment[] = [];
+
+  if (!response.ok) {
+    console.warn(`[getScheduledAppointments] Failed: ${response.statusText}`);
+    return { appointments, serviceCodes };
+  }
+
+  const data = await response.json() as RawAppointmentResponse[];
+  
+  if (!data || !Array.isArray(data)) {
+    return { appointments, serviceCodes };
+  }
+
+  for (const apt of data) {
+    const serviceCode = apt.performingService?.code || apt.serviceCode || '';
+    if (serviceCode) {
+      serviceCodes.add(serviceCode);
+    }
+
+    appointments.push({
       id: apt.appointmentId || apt.id || '',
       patientId: apt.patientIdentifier?.id || apt.patientId || '',
       patientName: apt.patientIdentifier?.name || apt.patientName,
-      scheduleDate: apt.appointmentHour || apt.scheduleDate || apt.appointmentDate || '',
+      scheduleDate: apt.scheduleDate || apt.appointmentDate || '',
+      appointmentHour: apt.appointmentHour || '',  // Key field for matching
       duration: apt.duration || '',
-      serviceCode: apt.performingService?.code || apt.serviceCode || '',
+      serviceCode,
       medicalActCode: apt.medicalAct?.code || apt.medicalActCode || '',
       humanResourceCode: apt.doctorCode || apt.humanResourceCode || '',
       episodeId: apt.parentVisit?.id,
       episodeType: apt.parentVisit?.type,
       status: apt.status,
       observations: apt.observations,
-    }));
+    });
   }
 
-  // Step 3: Build ExternalMedicalActSlotsList using discovered service codes
-  // MedicalActCode is always '1' (business rule)
-  const externalMedicalActSlotsList = serviceCodes.map(serviceCode => ({
-    StartDate: startDate,
-    EndDate: endDate,
-    MedicalActCode: '1', // Constant - business rule
-    ServiceCode: serviceCode,
-    RescheduleFlag: false,
-    HumanResourceCode: doctorCode,
-    Origin: 'MALO_ADMIN',
-  }));
-
-  // Step 4: Get availability slots
-  const slotsUrl = `${GLINTT_URL}/Glintt.HMS.CoreWebAPI/api/hms/appointment/ExternalSearchSlots`;
+  console.log(`[getScheduledAppointments] doctor=${doctorCode} appts=${appointments.length} serviceCodes=[${Array.from(serviceCodes).join(', ')}]`);
   
+  return { appointments, serviceCodes };
+}
+
+/**
+ * Generate an array of date strings (YYYY-MM-DD) from startDate to endDate inclusive.
+ */
+function getDateRange(startDate: string, endDate: string): string[] {
+  const dates: string[] = [];
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  
+  // Set to midnight to avoid timezone issues
+  start.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  
+  const current = new Date(start);
+  while (current <= end) {
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, '0');
+    const day = String(current.getDate()).padStart(2, '0');
+    dates.push(`${year}-${month}-${day}`);
+    current.setDate(current.getDate() + 1);
+  }
+  
+  return dates;
+}
+
+/**
+ * Fetches slots for a SINGLE day from ExternalSearchSlots.
+ */
+async function getExternalSearchSlotsForDay(
+  doctorCode: string,
+  serviceCode: string,
+  date: string,
+  token: string
+): Promise<Slot[]> {
+  const slotsUrl = `${GLINTT_URL}/Glintt.HMS.CoreWebAPI/api/hms/appointment/ExternalSearchSlots`;
   const slotsRequest = {
-    LoadAppointments: false,
+    LoadAppointments: true,
     FullSearch: true,
-    NumberOfRegisters: 50,
-    Patient: {
-      PatientType: 'MC',
-    },
+    NumberOfRegisters: 500,
+    Patient: {},
     Period: [],
     DaysOfWeek: [],
-    ExternalMedicalActSlotsList: externalMedicalActSlotsList,
+    ExternalMedicalActSlotsList: [{
+      StartDate: date,
+      EndDate: date,  // Same day - this is key for Glintt to return free slots
+      MedicalActCode: '1',
+      ServiceCode: serviceCode,
+      RescheduleFlag: false,
+      origin: 'MALO_ADMIN',
+      HumanResourceCode: doctorCode,
+    }],
   };
 
-  const slotsResponse = await fetch(slotsUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(slotsRequest),
-  });
+  try {
+    const response = await fetch(slotsUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(slotsRequest),
+    });
 
-  if (!slotsResponse.ok) {
-    throw new Error(`Failed to get slots: ${slotsResponse.statusText}`);
+    if (!response.ok) {
+      console.warn(`[getExternalSearchSlotsForDay] Failed for date=${date}: ${response.statusText}`);
+      return [];
+    }
+
+    const data = await response.json();
+    return data?.ExternalSearchSlot || [];
+  } catch (err) {
+    console.error(`[getExternalSearchSlotsForDay] Error for date=${date}:`, err);
+    return [];
+  }
+}
+
+/**
+ * Fetches slot grid from ExternalSearchSlots for a single serviceCode.
+ * IMPORTANT: Due to a Glintt API quirk, searching by date range doesn't return free slots.
+ * We must search day by day to get accurate free slot information.
+ */
+async function getExternalSearchSlots(
+  doctorCode: string,
+  serviceCode: string,
+  startDate: string,
+  endDate: string
+): Promise<Slot[]> {
+  const token = await getAuthToken();
+  
+  // Generate array of dates to search (day by day)
+  const dates = getDateRange(startDate, endDate);
+  console.log(`[getExternalSearchSlots] Searching ${dates.length} days for doctor=${doctorCode} service=${serviceCode}`);
+  
+  // Fetch slots for each day in parallel
+  const slotPromises = dates.map(date => 
+    getExternalSearchSlotsForDay(doctorCode, serviceCode, date, token)
+  );
+  
+  const slotsPerDay = await Promise.all(slotPromises);
+  
+  // Flatten all slots into a single array
+  const allSlots: Slot[] = [];
+  let totalN = 0, totalS = 0, totalB = 0;
+  
+  for (let i = 0; i < dates.length; i++) {
+    const daySlots = slotsPerDay[i];
+    allSlots.push(...daySlots);
+    
+    // Count slot types per day for debugging
+    let nCount = 0, sCount = 0, bCount = 0;
+    for (const slot of daySlots) {
+      const code = slot.OccupationReason?.Code;
+      if (code === 'N') { nCount++; totalN++; }
+      else if (code === 'S') { sCount++; totalS++; }
+      else if (code === 'B') { bCount++; totalB++; }
+    }
+    
+    if (daySlots.length > 0) {
+      console.log(`[getExternalSearchSlots] ${dates[i]}: ${daySlots.length} slots (N=${nCount} S=${sCount} B=${bCount})`);
+    }
+  }
+  
+  console.log(`[getExternalSearchSlots] TOTAL: doctor=${doctorCode} service=${serviceCode} slots=${allSlots.length} N=${totalN} S=${totalS} B=${totalB}`);
+  
+  return allSlots;
+}
+
+/**
+ * Deduplicates slots by SlotDateTime minute key.
+ * Keeps the first occurrence of each slot.
+ */
+function deduplicateSlots(slots: Slot[]): Slot[] {
+  const seen = new Map<string, Slot>();
+  
+  for (const slot of slots) {
+    const key = minuteKey(slot.SlotDateTime);
+    if (!key) continue;
+    
+    if (!seen.has(key)) {
+      seen.set(key, slot);
+    }
+  }
+  
+  return Array.from(seen.values());
+}
+
+/**
+ * Merges slots with appointments using exact minute matching.
+ * - "B" slots are excluded
+ * - "N" slots are FREE
+ * - "S" slots are OCCUPIED with appointment details attached if found
+ */
+function mergeSlotsWithAppointments(
+  slots: Slot[],
+  appointments: Appointment[],
+  doctorCode: string
+): MergedSlot[] {
+  // Build appointment index by appointmentHour minute key
+  const appointmentIndex = new Map<string, Appointment>();
+  for (const apt of appointments) {
+    const key = minuteKey(apt.appointmentHour);
+    if (key) {
+      appointmentIndex.set(key, apt);
+    }
   }
 
-  const slotsData = await slotsResponse.json();
-  const slots: Slot[] = slotsData?.ExternalSearchSlot || [];
+  const mergedSlots: MergedSlot[] = [];
+  let missingMatchCount = 0;
 
-  return { slots, appointments };
+  for (const slot of slots) {
+    const code = slot.OccupationReason?.Code;
+    
+    // Skip blocked slots entirely
+    if (code === 'B') {
+      continue;
+    }
+
+    // Determine occupation status
+    let isOccupied: boolean;
+    if (code === 'N') {
+      isOccupied = false;
+    } else if (code === 'S') {
+      isOccupied = true;
+    } else {
+      // Fallback when code is missing: use Occupation boolean
+      isOccupied = slot.Occupation === true;
+    }
+
+    const mergedSlot: MergedSlot = {
+      ...slot,
+      isOccupied,
+    };
+
+    // For occupied slots, try to match appointment
+    if (isOccupied) {
+      const key = minuteKey(slot.SlotDateTime);
+      const matchedAppointment = key ? appointmentIndex.get(key) : undefined;
+      
+      if (matchedAppointment) {
+        mergedSlot.appointment = matchedAppointment;
+      } else {
+        mergedSlot.missingAppointmentDetails = true;
+        missingMatchCount++;
+        console.warn(`[mergeSlotsWithAppointments] Occupied slot ${slot.SlotDateTime} (doctor=${doctorCode}, service=${slot.ServiceCode}) has no matching appointment`);
+      }
+    }
+
+    mergedSlots.push(mergedSlot);
+  }
+
+  // Sort by SlotDateTime
+  mergedSlots.sort((a, b) => {
+    const aKey = minuteKey(a.SlotDateTime) || '';
+    const bKey = minuteKey(b.SlotDateTime) || '';
+    return aKey.localeCompare(bKey);
+  });
+
+  console.log(`[mergeSlotsWithAppointments] merged=${mergedSlots.length} missingMatches=${missingMatchCount}`);
+  
+  return mergedSlots;
+}
+
+/**
+ * Main schedule function: orchestrates the new pipeline.
+ * 1. Fetch SCHEDULED appointments (status=SCHEDULED, medicalAct=1)
+ * 2. Extract unique serviceCodes (or fallback to doctor profile lookup)
+ * 3. Fetch slots for each serviceCode
+ * 4. Deduplicate and merge slots with appointments
+ */
+export async function getDoctorSchedule(
+  doctorCode: string,
+  startDate: string,
+  endDate: string
+): Promise<{ slots: MergedSlot[]; appointments: Appointment[] }> {
+  // Step 1: Get SCHEDULED appointments
+  const { appointments, serviceCodes } = await getScheduledAppointments(
+    doctorCode,
+    startDate,
+    endDate
+  );
+
+  // Step 2: Determine serviceCodes to use
+  let codesToUse = serviceCodes;
+  
+  if (codesToUse.size === 0) {
+    console.warn(`[getDoctorSchedule] No appointments found for doctor=${doctorCode}, using fallback serviceCode lookup`);
+    const fallbackCodes = await getServiceCodesForDoctor(doctorCode);
+    if (fallbackCodes.length > 0) {
+      codesToUse = new Set(fallbackCodes);
+      console.log(`[getDoctorSchedule] Fallback serviceCodes: [${fallbackCodes.join(', ')}]`);
+    } else {
+      console.warn(`[getDoctorSchedule] No serviceCodes found for doctor=${doctorCode}, returning empty`);
+      return { slots: [], appointments: [] };
+    }
+  }
+
+  // Step 3: Fetch slots for each serviceCode
+  const allSlots: Slot[] = [];
+  for (const serviceCode of codesToUse) {
+    const slots = await getExternalSearchSlots(doctorCode, serviceCode, startDate, endDate);
+    allSlots.push(...slots);
+  }
+
+  // Step 4: Deduplicate slots (same time may appear for multiple serviceCodes)
+  const uniqueSlots = deduplicateSlots(allSlots);
+  console.log(`[getDoctorSchedule] Total slots after dedup: ${uniqueSlots.length} (from ${allSlots.length})`);
+
+  // Step 5: Merge slots with appointments
+  const mergedSlots = mergeSlotsWithAppointments(uniqueSlots, appointments, doctorCode);
+
+  return { slots: mergedSlots, appointments };
 }
 
 export async function getFutureAppointments(
@@ -273,7 +539,8 @@ export async function getFutureAppointments(
     id: apt.appointmentId || apt.id || '',
     patientId: apt.patientIdentifier?.id || apt.patientId || '',
     patientName: apt.patientIdentifier?.name || apt.patientName,
-    scheduleDate: apt.appointmentHour || apt.scheduleDate || apt.appointmentDate || '',
+    scheduleDate: apt.scheduleDate || apt.appointmentDate || '',
+    appointmentHour: apt.appointmentHour || '',
     duration: apt.duration || '',
     serviceCode: apt.performingService?.code || apt.serviceCode || '',
     medicalActCode: apt.medicalAct?.code || apt.medicalActCode || '',
@@ -578,6 +845,12 @@ export async function getDoctorAppointmentsForWindow(
       continue;
     }
 
+    // Only include appointments with MedicalActCode = '1' (business rule)
+    const medicalActCode = apt.medicalAct?.code || apt.medicalActCode || '';
+    if (medicalActCode !== '1') {
+      continue;
+    }
+
     const startDateTime = apt.appointmentHour || apt.scheduleDate || apt.appointmentDate || '';
     if (!startDateTime) continue;
 
@@ -591,7 +864,7 @@ export async function getDoctorAppointmentsForWindow(
       patientName: apt.patientIdentifier?.name || apt.patientName,
       doctorCode: apt.doctorCode || apt.humanResourceCode || doctorCode,
       serviceCode: apt.performingService?.code || apt.serviceCode,
-      medicalActCode: apt.medicalAct?.code || apt.medicalActCode,
+      medicalActCode, // Already extracted and validated as '1'
       startDateTime,
       endDateTime,
       durationMinutes,
@@ -706,3 +979,146 @@ function createBlockFromAppointments(
   };
 }
 
+// ============================================================================
+// RESCHEDULE FUNCTIONALITY
+// ============================================================================
+
+/**
+ * Parameters for rescheduling an appointment.
+ */
+export interface RescheduleParams {
+  appointmentId: string;      // The appointment to reschedule (used as Episode ID)
+  patientId: string;
+  serviceCode: string;
+  medicalActCode: string;
+  // Target slot info
+  targetSlotDateTime: string; // Where to move it (ISO string)
+  targetBookingID: string;    // From ExternalSearchSlots
+  targetDuration: string;     // From ExternalSearchSlots (e.g., "2008-09-01T01:00:00")
+  targetDoctorCode: string;   // HumanResourceCode
+}
+
+/**
+ * Result of a reschedule operation.
+ */
+export interface RescheduleResult {
+  success: boolean;
+  appointmentId: string;      // Original appointment ID
+  newAppointmentId?: string;  // New appointment ID (if returned by Glintt)
+  error?: string;
+}
+
+/**
+ * Reschedules a single appointment to a new slot in Glintt.
+ *
+ * Uses ExternalScheduleAppointment with RescheduleFlag=true and Episode context.
+ * Based on working implementation from backend/glintt-tests/glintt_client.py
+ *
+ * @param params - Reschedule parameters
+ * @returns Result indicating success/failure
+ */
+export async function rescheduleAppointment(params: RescheduleParams): Promise<RescheduleResult> {
+  console.log(`[rescheduleAppointment] Starting reschedule:`);
+  console.log(`  - appointmentId (Episode): ${params.appointmentId}`);
+  console.log(`  - patientId: ${params.patientId}`);
+  console.log(`  - serviceCode: ${params.serviceCode}`);
+  console.log(`  - medicalActCode: ${params.medicalActCode}`);
+  console.log(`  - targetSlotDateTime: ${params.targetSlotDateTime}`);
+  console.log(`  - targetBookingID: ${params.targetBookingID}`);
+  console.log(`  - targetDuration: ${params.targetDuration}`);
+  console.log(`  - targetDoctorCode: ${params.targetDoctorCode}`);
+
+  try {
+    const token = await getAuthToken();
+
+    // Build the appointment data payload (from working test harness)
+    const appointmentData = {
+      ServiceCode: params.serviceCode,
+      MedicalActCode: params.medicalActCode,
+      HumanResourceCode: params.targetDoctorCode,
+      FinancialEntity: {
+        EntityCode: "998",  // Standard value from test harness
+        EntityCard: "",
+        Exemption: "S"
+      },
+      ScheduleDate: params.targetSlotDateTime,
+      Duration: params.targetDuration,
+      Origin: "MALO_ADMIN",
+      BookingID: params.targetBookingID,
+      Patient: {
+        PatientType: "MC",
+        PatientID: params.patientId
+      },
+      // CRITICAL for reschedule:
+      RescheduleFlag: true,
+      Episode: {
+        EpisodeType: "Consultas",
+        EpisodeID: params.appointmentId  // The appointment being rescheduled
+      }
+    };
+
+    // Glintt expects array
+    const requestBody = [appointmentData];
+
+    console.log(`[rescheduleAppointment] Request payload:`, JSON.stringify(requestBody, null, 2));
+
+    const endpoint = `${GLINTT_URL}/Glintt.HMS.CoreWebAPI/api/hms/appointment/ExternalScheduleAppointment`;
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const responseData = await response.json();
+
+    console.log(`[rescheduleAppointment] Response status: ${response.status}`);
+    console.log(`[rescheduleAppointment] Response data:`, JSON.stringify(responseData, null, 2));
+
+    if (!response.ok) {
+      const errorMsg = typeof responseData === 'object'
+        ? (responseData.errorDetails || responseData.message || JSON.stringify(responseData))
+        : String(responseData);
+
+      console.error(`[rescheduleAppointment] HTTP error ${response.status}: ${errorMsg}`);
+
+      return {
+        success: false,
+        appointmentId: params.appointmentId,
+        error: `HTTP ${response.status}: ${errorMsg}`,
+      };
+    }
+
+    // Check for errors in response body
+    if (typeof responseData === 'object') {
+      if (responseData.errorDetails) {
+        console.error(`[rescheduleAppointment] Glintt error:`, responseData.errorDetails);
+        return {
+          success: false,
+          appointmentId: params.appointmentId,
+          error: responseData.errorDetails,
+        };
+      }
+    }
+
+    // Extract new appointment ID if present
+    const newAppointmentId = responseData?.appointmentID || responseData?.AppointmentID;
+
+    console.log(`[rescheduleAppointment] SUCCESS - appointmentId: ${params.appointmentId} -> newAppointmentId: ${newAppointmentId || 'not returned'}`);
+
+    return {
+      success: true,
+      appointmentId: params.appointmentId,
+      newAppointmentId: newAppointmentId || undefined,
+    };  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[rescheduleAppointment] Exception:`, errorMsg);    return {
+      success: false,
+      appointmentId: params.appointmentId,
+      error: errorMsg,
+    };
+  }
+}

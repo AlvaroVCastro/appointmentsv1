@@ -1,4 +1,4 @@
-import type { Slot, Appointment } from '@/lib/glintt-api';
+import type { Slot, Appointment, MergedSlot } from '@/lib/glintt-api';
 
 export interface ScheduleSlot {
   dateTime: string;
@@ -8,6 +8,7 @@ export interface ScheduleSlot {
   isRescheduled?: boolean;
   originalDate?: string;
   isEmptyDueToStatus?: boolean; // For ANNULLED or RESCHEDULED appointments
+  missingAppointmentDetails?: boolean; // Occupied slot with no matching appointment found
   // Fields for merged empty slot groups
   durationMinutes?: number;      // Duration of this slot (or total duration if merged)
   endDateTime?: string;          // End time (important for merged slots)
@@ -50,99 +51,62 @@ export function formatFullDate(dateTime: string) {
   });
 }
 
-export function processScheduleData(slots: Slot[], appointments: Appointment[]): ScheduleSlot[] {
-  const scheduleMap = new Map<string, ScheduleSlot>();
+/**
+ * Checks if a date falls on a Saturday.
+ */
+function isSaturday(dateTime: string): boolean {
+  return new Date(dateTime).getDay() === 6;
+}
+
+/**
+ * Processes merged slots from the API into ScheduleSlot[] for the UI.
+ *
+ * Since merging is now done server-side in glintt-api.ts, this function
+ * is a simple mapper that:
+ * 1. Defensive filter: skip any blocked slots (Code "B") that slipped through
+ * 2. Skip Saturdays (clinic doesn't operate on Saturdays)
+ * 3. Maps MergedSlot fields to ScheduleSlot fields
+ * 4. Sorts by datetime
+ *
+ * The slots parameter is actually MergedSlot[] from getDoctorSchedule().
+ * The appointments parameter is kept for backward compatibility but not used.
+ */
+export function processScheduleData(slots: MergedSlot[], _appointments: Appointment[]): ScheduleSlot[] {
+  console.log(`[processScheduleData] Processing ${slots.length} pre-merged slots`);
+
+  const result: ScheduleSlot[] = [];
+
+  for (const slot of slots) {
+    // Defensive: skip blocked slots (should already be filtered server-side)
+    if (slot.OccupationReason?.Code === 'B') {
+      continue;
+    }
+
+    // Skip Saturdays - clinic doesn't operate on Saturdays
+    if (isSaturday(slot.SlotDateTime)) {
+      continue;
+    }
+
+    // Map MergedSlot to ScheduleSlot
+    const scheduleSlot: ScheduleSlot = {
+      dateTime: slot.SlotDateTime,
+      isOccupied: slot.isOccupied,
+      slot: slot, // Keep raw slot data for reference
+      appointment: slot.appointment,
+      missingAppointmentDetails: slot.missingAppointmentDetails,
+    };
+
+    result.push(scheduleSlot);
+  }
   
-  // Process slots - check both Occupation and OccupationReason.Code
-  // OccupationReason.Code === "C" means "Slot totalmente ocupado" (totally occupied)
-  // OccupationReason.Code === "N" means "Slot livre" (free slot)
-  slots.forEach((slot: Slot) => {
-    const dateTime = new Date(slot.SlotDateTime).toISOString();
-    const occupationReasonCode = slot.OccupationReason?.Code;
-    // Slot is occupied if Occupation is true OR OccupationReason.Code is "C"
-    const isOccupied = slot.Occupation === true || occupationReasonCode === "C";
-    scheduleMap.set(dateTime, {
-      dateTime,
-      isOccupied,
-      slot,
-    });
-  });
-
-  // Process appointments - prioritize scheduled appointments over rescheduled/annulled
-  // First pass: Process scheduled appointments (not ANNULLED or RESCHEDULED)
-  appointments.forEach((apt: Appointment) => {
-    const aptDateTime = new Date(apt.scheduleDate);
-    const isAnnulledOrRescheduled = apt.status === 'ANNULLED' || apt.status === 'RESCHEDULED';
-    
-    // Skip annulled/rescheduled in first pass
-    if (isAnnulledOrRescheduled) return;
-    
-    // Try to match with slots that are close in time (within 30 minutes)
-    let matched = false;
-    for (const [dateTime, slot] of scheduleMap.entries()) {
-      const slotDateTime = new Date(dateTime);
-      const timeDiff = Math.abs(aptDateTime.getTime() - slotDateTime.getTime());
-      // Match if within 30 minutes
-      if (timeDiff < 30 * 60 * 1000) {
-        slot.isOccupied = true;
-        slot.appointment = apt;
-        matched = true;
-        break;
-      }
-    }
-    
-    // If no match found, add as a standalone appointment
-    if (!matched) {
-      scheduleMap.set(aptDateTime.toISOString(), {
-        dateTime: aptDateTime.toISOString(),
-        isOccupied: true,
-        appointment: apt,
-      });
-    }
-  });
-
-  // Second pass: Process ANNULLED/RESCHEDULED appointments, but only if slot doesn't have a scheduled appointment
-  appointments.forEach((apt: Appointment) => {
-    const aptDateTime = new Date(apt.scheduleDate);
-    const isAnnulledOrRescheduled = apt.status === 'ANNULLED' || apt.status === 'RESCHEDULED';
-    
-    // Only process annulled/rescheduled in second pass
-    if (!isAnnulledOrRescheduled) return;
-    
-    // Try to match with slots that are close in time (within 30 minutes)
-    let matched = false;
-    for (const [dateTime, slot] of scheduleMap.entries()) {
-      const slotDateTime = new Date(dateTime);
-      const timeDiff = Math.abs(aptDateTime.getTime() - slotDateTime.getTime());
-      // Match if within 30 minutes
-      if (timeDiff < 30 * 60 * 1000) {
-        // Only add if slot doesn't already have an appointment (scheduled appointments take priority)
-        if (!slot.appointment) {
-          slot.isOccupied = false;
-          slot.appointment = apt;
-          slot.isEmptyDueToStatus = true;
-          matched = true;
-          break;
-        }
-        // If slot already has a scheduled appointment, skip this annulled/rescheduled one
-        matched = true; // Mark as matched to skip standalone addition
-        break;
-      }
-    }
-    
-    // If no match found, add as a standalone appointment
-    if (!matched) {
-      scheduleMap.set(aptDateTime.toISOString(), {
-        dateTime: aptDateTime.toISOString(),
-        isOccupied: false, // Empty if annulled/rescheduled
-        appointment: apt,
-        isEmptyDueToStatus: true,
-      });
-    }
-  });
-
-  // Sort by date
-  return Array.from(scheduleMap.values()).sort(
+  const emptyCount = result.filter(s => !s.isOccupied).length;
+  const occupiedCount = result.filter(s => s.isOccupied).length;
+  const missingCount = result.filter(s => s.missingAppointmentDetails).length;
+  
+  console.log(`[processScheduleData] Result: ${result.length} slots (${emptyCount} free, ${occupiedCount} occupied, ${missingCount} missing appointment details)`);
+  
+  // Sort by datetime
+  return result.sort(
     (a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()
   );
 }
@@ -162,16 +126,22 @@ export function formatDateKey(date: Date | string): string {
 /**
  * Returns an array of Date objects for the next `count` days starting from today.
  * Different from getNextDays() which returns {startDate, endDate} strings.
+ * Skips Saturdays (getDay() === 6) and Sundays (getDay() === 0) to only include weekdays.
  */
 export function getNextDaysArray(count: number): Date[] {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const days: Date[] = [];
+  let dayOffset = 0;
 
-  for (let i = 0; i < count; i++) {
+  while (days.length < count) {
     const d = new Date(today);
-    d.setDate(today.getDate() + i);
-    days.push(d);
+    d.setDate(today.getDate() + dayOffset);
+    // Skip Saturdays (getDay() === 6) and Sundays (getDay() === 0)
+    if (d.getDay() !== 0 && d.getDay() !== 6) {
+      days.push(d);
+    }
+    dayOffset++;
   }
 
   return days;
@@ -208,14 +178,29 @@ export function hasEmptySlotsForDate(allSlots: ScheduleSlot[], targetDate: Date)
 }
 
 /**
- * Parse duration string (HH:MM:SS or HH:MM) to minutes.
+ * Parse duration string to minutes.
+ * Handles multiple formats:
+ * - Glintt datetime format: "2020-05-01T00:30:00" (time part is the duration)
+ * - Time format: "HH:MM:SS" or "HH:MM"
  */
 export function parseDurationToMinutes(duration: string): number {
   if (!duration) return 30; // Default 30 minutes
-  const parts = duration.split(':');
-  if (parts.length >= 2) {
-    const hours = parseInt(parts[0], 10) || 0;
-    const minutes = parseInt(parts[1], 10) || 0;
+  
+  // Check if it's a datetime string (Glintt format: "2020-05-01T00:30:00")
+  // The time part after 'T' represents the actual duration
+  let timePart = duration;
+  if (duration.includes('T')) {
+    const parts = duration.split('T');
+    if (parts.length >= 2) {
+      timePart = parts[1]; // Get the time part: "00:30:00"
+    }
+  }
+  
+  // Now parse the time part (HH:MM:SS or HH:MM)
+  const timeParts = timePart.split(':');
+  if (timeParts.length >= 2) {
+    const hours = parseInt(timeParts[0], 10) || 0;
+    const minutes = parseInt(timeParts[1], 10) || 0;
     return hours * 60 + minutes;
   }
   return 30; // Default 30 minutes
@@ -411,4 +396,3 @@ export function mergeConsecutiveEmptySlots(slots: ScheduleSlot[]): ScheduleSlot[
     (a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()
   );
 }
-
