@@ -36,9 +36,6 @@ jobs:
           echo "📦 Deploying Edge Functions..."
           supabase functions deploy compute-dashboard-stats --no-verify-jwt
           
-          echo "📋 Pushing database migrations..."
-          supabase db push
-          
           echo "✅ Production deployment complete!"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
