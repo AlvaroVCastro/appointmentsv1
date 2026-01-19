@@ -32,14 +32,9 @@ export default function AdminDashboardPage() {
   const [topDoctors, setTopDoctors] = useState<TopDoctor[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [lastComputed, setLastComputed] = useState<Date | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  async function loadData() {
+  const loadData = async () => {
     setLoading(true);
     try {
       // Check if user is admin and fetch stats
@@ -59,7 +54,6 @@ export default function AdminDashboardPage() {
       }
 
       const statsData = await statsResponse.json();
-      setIsAdmin(statsData.isAdmin);
       setStats(statsData.stats || []);
 
       // Get latest computed_at
@@ -84,7 +78,12 @@ export default function AdminDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }
+  };
+
+  useEffect(() => {
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleRefresh() {
     setRefreshing(true);
