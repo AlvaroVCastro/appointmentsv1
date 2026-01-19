@@ -1113,9 +1113,7 @@ export async function rescheduleAppointment(params: RescheduleParams): Promise<R
       success: true,
       appointmentId: params.appointmentId,
       newAppointmentId: newAppointmentId || undefined,
-    };
-
-  } catch (error) {
+    };  } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error(`[rescheduleAppointment] Exception:`, errorMsg);    return {
       success: false,

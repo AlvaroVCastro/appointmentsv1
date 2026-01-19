@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 
+/**
+ * PATCH /api/users/role
+ * 
+ * Updates a user's role and/or doctor_code. Admin only.
+ * 
+ * Body:
+ * - userId: string (required)
+ * - newRole?: 'admin' | 'user' (optional)
+ * - doctorCode?: string | null (optional)
+ */
 export async function PATCH(request: NextRequest) {
   try {
     // Get the current user's session to verify they're an admin
@@ -46,34 +56,67 @@ export async function PATCH(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { userId, newRole } = body;
+    const { userId, newRole, doctorCode } = body;
 
-    if (!userId || !newRole) {
-      return NextResponse.json({ error: 'Missing userId or newRole' }, { status: 400 });
+    if (!userId) {
+      return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
     }
 
-    if (!['admin', 'user'].includes(newRole)) {
-      return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+    // Build update object
+    const updateData: { role?: string; doctor_code?: string | null } = {};
+
+    // Handle role update
+    if (newRole !== undefined) {
+      if (!['admin', 'user'].includes(newRole)) {
+        return NextResponse.json({ error: 'Invalid role' }, { status: 400 });
+      }
+
+      // Prevent admin from removing their own admin role
+      if (userId === currentUser.id && newRole !== 'admin') {
+        return NextResponse.json({ error: 'Cannot remove your own admin role' }, { status: 400 });
+      }
+
+      updateData.role = newRole;
     }
 
-    // Prevent admin from removing their own admin role
-    if (userId === currentUser.id && newRole !== 'admin') {
-      return NextResponse.json({ error: 'Cannot remove your own admin role' }, { status: 400 });
+    // Handle doctor_code update
+    if (doctorCode !== undefined) {
+      // doctorCode can be a string or null (to remove)
+      updateData.doctor_code = doctorCode || null;
     }
 
-    // Update the user's role using service client (bypasses RLS)
+    // Ensure there's something to update
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: 'No updates provided' }, { status: 400 });
+    }
+
+    // Update the user's profile using service client (bypasses RLS)
     const { error: updateError } = await serviceClient
       .schema('appointments_app')
       .from('user_profiles')
-      .update({ role: newRole })
+      .update(updateData)
       .eq('id', userId);
 
     if (updateError) {
       console.error('[api/users/role] Update error:', updateError);
-      return NextResponse.json({ error: 'Failed to update role' }, { status: 500 });
+      
+      // Check for unique constraint violation on doctor_code
+      if (updateError.code === '23505' && updateError.message?.includes('doctor_code')) {
+        return NextResponse.json(
+          { error: 'Este código de médico já está associado a outro utilizador' },
+          { status: 400 }
+        );
+      }
+      
+      return NextResponse.json({ error: 'Failed to update user' }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, userId, newRole });
+    return NextResponse.json({ 
+      success: true, 
+      userId, 
+      ...(newRole !== undefined && { newRole }),
+      ...(doctorCode !== undefined && { doctorCode }),
+    });
   } catch (error) {
     console.error('[api/users/role] Error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

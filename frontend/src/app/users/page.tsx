@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Users, RefreshCw, Shield, ShieldOff } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Users, RefreshCw, Shield, ShieldOff, Pencil, Check, X } from 'lucide-react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { useToast } from '@/hooks/use-toast';
 
@@ -13,6 +14,7 @@ interface UserProfile {
   full_name: string | null;
   email: string | null;
   role: 'admin' | 'user';
+  doctor_code: string | null;
   avatar_url: string | null;
   created_at: string;
 }
@@ -22,6 +24,8 @@ export default function UsersPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const [editingDoctorCode, setEditingDoctorCode] = useState<string | null>(null);
+  const [doctorCodeInput, setDoctorCodeInput] = useState<string>('');
   const { toast } = useToast();
 
   useEffect(() => {
@@ -56,8 +60,6 @@ export default function UsersPage() {
         return;
       }
 
-      // Get emails from auth.users (we need to do this separately since we can't join)
-      // For now, we'll show the profiles without email - email would need a server-side call
       setUsers(profiles || []);
     } catch (error) {
       console.error('Error:', error);
@@ -109,6 +111,65 @@ export default function UsersPage() {
     }
   }
 
+  async function updateDoctorCode(userId: string) {
+    const newDoctorCode = doctorCodeInput.trim() || null;
+    
+    setUpdatingUserId(userId);
+    try {
+      const response = await fetch('/api/users/role', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, doctorCode: newDoctorCode }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        toast({
+          title: 'Erro',
+          description: result.error || 'Não foi possível atualizar o código de médico.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Update local state
+      setUsers(prev => prev.map(u => 
+        u.id === userId ? { ...u, doctor_code: newDoctorCode } : u
+      ));
+
+      toast({
+        title: 'Sucesso',
+        description: newDoctorCode 
+          ? `Código de médico atualizado para ${newDoctorCode}.`
+          : 'Código de médico removido.',
+      });
+
+      // Close edit mode
+      setEditingDoctorCode(null);
+      setDoctorCodeInput('');
+    } catch (error) {
+      console.error('Error updating doctor code:', error);
+      toast({
+        title: 'Erro',
+        description: 'Ocorreu um erro ao atualizar o código de médico.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
+  function startEditingDoctorCode(user: UserProfile) {
+    setEditingDoctorCode(user.id);
+    setDoctorCodeInput(user.doctor_code || '');
+  }
+
+  function cancelEditingDoctorCode() {
+    setEditingDoctorCode(null);
+    setDoctorCodeInput('');
+  }
+
   function formatDate(dateString: string) {
     return new Date(dateString).toLocaleDateString('pt-PT', {
       day: '2-digit',
@@ -120,7 +181,7 @@ export default function UsersPage() {
   return (
     <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -131,7 +192,7 @@ export default function UsersPage() {
                   <div>
                     <CardTitle className="text-xl">Gestão de Utilizadores</CardTitle>
                     <CardDescription>
-                      Gerir permissões e roles dos utilizadores da aplicação
+                      Gerir permissões, roles e códigos de médico dos utilizadores
                     </CardDescription>
                   </div>
                 </div>
@@ -168,6 +229,7 @@ export default function UsersPage() {
                       <tr className="border-b border-slate-100">
                         <th className="text-left py-3 px-4 text-sm font-medium text-slate-500">Nome</th>
                         <th className="text-left py-3 px-4 text-sm font-medium text-slate-500">Email</th>
+                        <th className="text-left py-3 px-4 text-sm font-medium text-slate-500">Código Médico</th>
                         <th className="text-left py-3 px-4 text-sm font-medium text-slate-500">Role</th>
                         <th className="text-left py-3 px-4 text-sm font-medium text-slate-500">Data de Registo</th>
                         <th className="text-right py-3 px-4 text-sm font-medium text-slate-500">Ações</th>
@@ -177,6 +239,7 @@ export default function UsersPage() {
                       {users.map((user) => {
                         const isCurrentUser = user.id === currentUserId;
                         const isUpdating = updatingUserId === user.id;
+                        const isEditing = editingDoctorCode === user.id;
                         
                         return (
                           <tr key={user.id} className="border-b border-slate-50 hover:bg-slate-25">
@@ -207,6 +270,60 @@ export default function UsersPage() {
                             </td>
                             <td className="py-4 px-4">
                               <span className="text-slate-600">{user.email || '-'}</span>
+                            </td>
+                            <td className="py-4 px-4">
+                              {isEditing ? (
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="text"
+                                    value={doctorCodeInput}
+                                    onChange={(e) => setDoctorCodeInput(e.target.value)}
+                                    placeholder="Ex: 12345"
+                                    className="w-24 h-8 text-sm"
+                                    autoFocus
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => updateDoctorCode(user.id)}
+                                    disabled={isUpdating}
+                                    className="h-8 w-8 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                  >
+                                    {isUpdating ? (
+                                      <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Check className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={cancelEditingDoctorCode}
+                                    disabled={isUpdating}
+                                    className="h-8 w-8 p-0 text-slate-400 hover:text-slate-600"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  {user.doctor_code ? (
+                                    <Badge variant="secondary" className="bg-cyan-50 text-cyan-700 border border-cyan-200">
+                                      {user.doctor_code}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-slate-400 text-sm">Não definido</span>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => startEditingDoctorCode(user)}
+                                    className="h-6 w-6 p-0 text-slate-400 hover:text-slate-600"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              )}
                             </td>
                             <td className="py-4 px-4">
                               <Badge 

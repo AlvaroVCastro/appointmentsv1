@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Calendar, CalendarDays, Users, LogOut, ChevronUp, ChevronDown, User } from 'lucide-react';
+import { LayoutDashboard, Calendar, CalendarDays, Users, LogOut, ChevronUp, ChevronDown, User, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 
@@ -11,30 +11,14 @@ interface NavItem {
   label: string;
   href: string;
   icon: React.ElementType;
+  adminOnly?: boolean;
 }
-
-const navItems: NavItem[] = [
-  {
-    label: 'Dashboard',
-    href: '/dashboard',
-    icon: LayoutDashboard,
-  },
-  {
-    label: 'Calendário',
-    href: '/appointments',
-    icon: CalendarDays,
-  },
-  {
-    label: 'Slots Livres',
-    href: '/appointments/empty-slots',
-    icon: Calendar,
-  },
-];
 
 interface UserInfo {
   name: string;
   email: string;
   role: string;
+  doctorCode?: string;
   avatarUrl?: string;
 }
 
@@ -55,7 +39,7 @@ export function Sidebar() {
         const { data: profile } = await supabase
           .schema('appointments_app')
           .from('user_profiles')
-          .select('full_name, role, avatar_url')
+          .select('full_name, role, avatar_url, doctor_code')
           .eq('id', authUser.id)
           .single();
 
@@ -63,12 +47,52 @@ export function Sidebar() {
           name: profile?.full_name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Utilizador',
           email: authUser.email || '',
           role: profile?.role || 'user',
+          doctorCode: profile?.doctor_code || undefined,
           avatarUrl: profile?.avatar_url || undefined,
         });
       }
     }
     loadUser();
   }, []);
+
+  const isAdmin = user?.role === 'admin';
+
+  // Build navigation items based on user role
+  const navItems = useMemo((): NavItem[] => {
+    const items: NavItem[] = [
+      {
+        label: 'Dashboard',
+        href: '/dashboard',
+        icon: LayoutDashboard,
+      },
+    ];
+
+    // Admin Dashboard - only visible to admins
+    if (isAdmin) {
+      items.push({
+        label: 'Admin Dashboard',
+        href: '/admin-dashboard',
+        icon: BarChart3,
+        adminOnly: true,
+      });
+    }
+
+    // Calendar and Free Slots - visible to all
+    items.push(
+      {
+        label: 'Calendário',
+        href: '/appointments',
+        icon: CalendarDays,
+      },
+      {
+        label: 'Slots Livres',
+        href: '/appointments/empty-slots',
+        icon: Calendar,
+      }
+    );
+
+    return items;
+  }, [isAdmin]);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
@@ -96,7 +120,7 @@ export function Sidebar() {
             className="h-8 w-8 rounded-lg object-cover"
           />
           <div>
-            <h1 className="font-bold text-slate-900 text-base tracking-tight">Voice Agent</h1>
+            <h1 className="font-bold text-slate-900 text-base tracking-tight">Appointments</h1>
             <p className="text-[10px] text-slate-500">Centro de Controlo</p>
           </div>
         </div>
@@ -136,21 +160,27 @@ export function Sidebar() {
             <div className="px-2 py-1.5 mb-1">
               <p className="font-medium text-slate-900 text-xs truncate">{user?.name || 'Utilizador'}</p>
               <p className="text-[10px] text-slate-500 truncate">{user?.email}</p>
+              {user?.doctorCode && (
+                <p className="text-[10px] text-cyan-600 truncate">Código: {user.doctorCode}</p>
+              )}
             </div>
             
-            <Link
-              href="/users"
-              className={cn(
-                'flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors',
-                pathname === '/users'
-                  ? 'bg-cyan-50 text-cyan-700'
-                  : 'text-slate-600 hover:bg-slate-100'
-              )}
-              onClick={() => setIsUserMenuOpen(false)}
-            >
-              <Users className="h-3.5 w-3.5" />
-              Gestão de Utilizadores
-            </Link>
+            {/* User Management - Admin only */}
+            {isAdmin && (
+              <Link
+                href="/users"
+                className={cn(
+                  'flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors',
+                  pathname === '/users'
+                    ? 'bg-cyan-50 text-cyan-700'
+                    : 'text-slate-600 hover:bg-slate-100'
+                )}
+                onClick={() => setIsUserMenuOpen(false)}
+              >
+                <Users className="h-3.5 w-3.5" />
+                Gestão de Utilizadores
+              </Link>
+            )}
             
             <button
               onClick={handleLogout}
