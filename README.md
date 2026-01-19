@@ -2,6 +2,7 @@
 
 Appointment management application for Malo Clinic to help fill empty spots in doctor schedules.
 
+
 ## Overview
 
 This application helps clinic staff fill empty appointment slots (from rescheduled appointments or cancellations) by:
