@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
+import { getHumanResource } from '@/lib/glintt-api';
 
 export const dynamic = 'force-dynamic';
 
@@ -109,7 +110,7 @@ export async function GET(request: NextRequest) {
         .sort((a, b) => b[1] - a[1])
         .slice(0, limit);
 
-      // Get doctor names from user_profiles
+      // Get doctor names from user_profiles first
       const doctorCodes = sorted.map(([code]) => code);
       const { data: doctors } = await serviceClient
         .schema('appointments_app')
@@ -120,13 +121,31 @@ export async function GET(request: NextRequest) {
       const doctorNames = new Map<string, string>();
       for (const d of doctors || []) {
         if (d.doctor_code) {
-          doctorNames.set(d.doctor_code, d.full_name || 'Unknown');
+          doctorNames.set(d.doctor_code, d.full_name || '');
         }
+      }
+
+      // For any codes not found in user_profiles, try Glintt API as fallback
+      const missingCodes = doctorCodes.filter(code => !doctorNames.get(code));
+      if (missingCodes.length > 0) {
+        console.log('[api/dashboard/reschedules] Fetching names from Glintt for codes:', missingCodes);
+        await Promise.all(
+          missingCodes.map(async (code) => {
+            try {
+              const hr = await getHumanResource(code);
+              if (hr?.HumanResourceName) {
+                doctorNames.set(code, hr.HumanResourceName);
+              }
+            } catch (err) {
+              console.warn(`[api/dashboard/reschedules] Failed to fetch Glintt name for ${code}:`, err);
+            }
+          })
+        );
       }
 
       const topDoctors = sorted.map(([code, count]) => ({
         doctor_code: code,
-        doctor_name: doctorNames.get(code) || 'Unknown',
+        doctor_name: doctorNames.get(code) || 'Desconhecido',
         reschedule_count: count,
       }));
 

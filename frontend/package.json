@@ -1,7 +1,7 @@
 {
-  "name": "malo-voice-agent",
+  "name": "appointments-app",
   "version": "1.0.0",
-  "description": "Control panel for Malo Clinic voice agents (Next.js)",
+  "description": "Appointments management app for Malo Clinic (Next.js)",
   "author": "Augusta Labs",
   "logos": {
     "main": "/logo.png",

@@ -46,7 +46,7 @@ function formatAppointmentDateTime(dateTimeStr: string): { date: string; time: s
  * Shows ideal candidates (top 3) by default, with option to view all.
  */
 export function ReplacementPatientsList({
-  candidates,
+  candidates: _candidates, // Kept for backwards compat, use idealCandidates/allCandidates
   loading,
   hasSelection,
   error,
@@ -54,7 +54,7 @@ export function ReplacementPatientsList({
   doctorCode,
   idealCandidates = [],
   allCandidates = [],
-  hasMoreCandidates = false,
+  hasMoreCandidates: _hasMoreCandidates = false, // Computed from allCandidates.length > idealCandidates.length
   showAllCandidates = false,
   onToggleShowAll,
 }: ReplacementPatientsListProps) {
@@ -151,7 +151,7 @@ export function ReplacementPatientsList({
               Não há remarcações ideais
             </div>
             <div className="text-sm text-slate-500 text-center">
-              Não encontrámos marcações no mesmo dia da semana/hora para as próximas 3 semanas.
+              Não encontrámos marcações no mesmo dia da semana/hora para as próximas 2 semanas.
             </div>
           </div>
 

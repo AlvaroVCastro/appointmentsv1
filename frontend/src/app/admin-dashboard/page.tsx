@@ -31,8 +31,6 @@ export default function AdminDashboardPage() {
   const [stats, setStats] = useState<DashboardStats[]>([]);
   const [topDoctors, setTopDoctors] = useState<TopDoctor[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [lastComputed, setLastComputed] = useState<Date | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -56,14 +54,6 @@ export default function AdminDashboardPage() {
       const statsData = await statsResponse.json();
       setStats(statsData.stats || []);
 
-      // Get latest computed_at
-      if (statsData.stats && statsData.stats.length > 0) {
-        const latest = statsData.stats.reduce((a: DashboardStats, b: DashboardStats) => 
-          new Date(a.computed_at) > new Date(b.computed_at) ? a : b
-        );
-        setLastComputed(new Date(latest.computed_at));
-      }
-
       if (topResponse.ok) {
         const topData = await topResponse.json();
         setTopDoctors(topData.topDoctors || []);
@@ -84,46 +74,6 @@ export default function AdminDashboardPage() {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  async function handleRefresh() {
-    setRefreshing(true);
-    try {
-      const response = await fetch('/api/dashboard/stats', {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to refresh stats');
-      }
-
-      toast({
-        title: 'Sucesso',
-        description: 'Estatísticas atualizadas com sucesso.',
-      });
-
-      // Reload data
-      await loadData();
-    } catch (error) {
-      console.error('Error refreshing stats:', error);
-      toast({
-        title: 'Erro',
-        description: 'Não foi possível atualizar as estatísticas. Verifique se a Edge Function está configurada.',
-        variant: 'destructive',
-      });
-    } finally {
-      setRefreshing(false);
-    }
-  }
-
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('pt-PT', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
 
   const getOccupationColor = (percentage: number) => {
     if (percentage >= 80) return 'text-emerald-600 bg-emerald-50';
@@ -161,23 +111,16 @@ export default function AdminDashboardPage() {
                 Visão geral de todos os médicos e métricas de reagendamentos
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              {lastComputed && (
-                <span className="text-xs text-slate-400">
-                  Última atualização: {formatDate(lastComputed)}
-                </span>
-              )}
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="gap-2"
-                onClick={handleRefresh}
-                disabled={refreshing}
-              >
-                <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-                {refreshing ? 'A atualizar...' : 'Atualizar Estatísticas'}
-              </Button>
-            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-2"
+              onClick={loadData}
+              disabled={loading}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              Atualizar
+            </Button>
           </div>
 
           {/* Summary Cards */}
@@ -259,7 +202,7 @@ export default function AdminDashboardPage() {
                     <AlertCircle className="h-12 w-12 text-slate-300 mx-auto mb-4" />
                     <p className="text-slate-500">Nenhum dado disponível.</p>
                     <p className="text-sm text-slate-400 mt-1">
-                      Clique em &quot;Atualizar Estatísticas&quot; para carregar os dados.
+                      As estatísticas são atualizadas automaticamente às 7h.
                     </p>
                   </div>
                 ) : (

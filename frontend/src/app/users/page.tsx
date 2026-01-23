@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Users, RefreshCw, Shield, ShieldOff, Pencil, Check, X } from 'lucide-react';
+import { Users, RefreshCw, Shield, ShieldOff, Pencil, Check, X, Plus, Trash2 } from 'lucide-react';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 import { useToast } from '@/hooks/use-toast';
 
@@ -15,6 +15,7 @@ interface UserProfile {
   email: string | null;
   role: 'admin' | 'user';
   doctor_code: string | null;
+  additional_codes: string[]; // Codes from user_doctor_codes table
   avatar_url: string | null;
   created_at: string;
 }
@@ -26,6 +27,8 @@ export default function UsersPage() {
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [editingDoctorCode, setEditingDoctorCode] = useState<string | null>(null);
   const [doctorCodeInput, setDoctorCodeInput] = useState<string>('');
+  const [addingCodeUserId, setAddingCodeUserId] = useState<string | null>(null);
+  const [newCodeInput, setNewCodeInput] = useState<string>('');
   const { toast } = useToast();
 
   useEffect(() => {
@@ -61,7 +64,27 @@ export default function UsersPage() {
         return;
       }
 
-      setUsers(profiles || []);
+      // Fetch additional doctor codes for all users
+      const { data: additionalCodes } = await supabase
+        .schema('appointments_app')
+        .from('user_doctor_codes')
+        .select('user_id, doctor_code');
+
+      // Build a map of user_id -> additional codes
+      const additionalCodesMap = new Map<string, string[]>();
+      for (const row of additionalCodes || []) {
+        const existing = additionalCodesMap.get(row.user_id) || [];
+        existing.push(row.doctor_code);
+        additionalCodesMap.set(row.user_id, existing);
+      }
+
+      // Merge additional codes into profiles
+      const usersWithCodes = (profiles || []).map(profile => ({
+        ...profile,
+        additional_codes: additionalCodesMap.get(profile.id) || [],
+      }));
+
+      setUsers(usersWithCodes);
     } catch (error) {
       console.error('Error:', error);
     } finally {
@@ -171,6 +194,99 @@ export default function UsersPage() {
     setDoctorCodeInput('');
   }
 
+  async function addDoctorCode(userId: string) {
+    const codeToAdd = newCodeInput.trim();
+    if (!codeToAdd) return;
+    
+    setUpdatingUserId(userId);
+    try {
+      const response = await fetch('/api/users/role', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, addDoctorCode: codeToAdd }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        toast({
+          title: 'Erro',
+          description: result.error || 'Não foi possível adicionar o código.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Update local state
+      setUsers(prev => prev.map(u => 
+        u.id === userId 
+          ? { ...u, additional_codes: [...u.additional_codes, codeToAdd] }
+          : u
+      ));
+
+      toast({
+        title: 'Sucesso',
+        description: `Código ${codeToAdd} adicionado.`,
+      });
+
+      // Close add mode
+      setAddingCodeUserId(null);
+      setNewCodeInput('');
+    } catch (error) {
+      console.error('Error adding doctor code:', error);
+      toast({
+        title: 'Erro',
+        description: 'Ocorreu um erro ao adicionar o código.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
+  async function removeDoctorCode(userId: string, codeToRemove: string) {
+    setUpdatingUserId(userId);
+    try {
+      const response = await fetch('/api/users/role', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, removeDoctorCode: codeToRemove }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        toast({
+          title: 'Erro',
+          description: result.error || 'Não foi possível remover o código.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      // Update local state
+      setUsers(prev => prev.map(u => 
+        u.id === userId 
+          ? { ...u, additional_codes: u.additional_codes.filter(c => c !== codeToRemove) }
+          : u
+      ));
+
+      toast({
+        title: 'Sucesso',
+        description: `Código ${codeToRemove} removido.`,
+      });
+    } catch (error) {
+      console.error('Error removing doctor code:', error);
+      toast({
+        title: 'Erro',
+        description: 'Ocorreu um erro ao remover o código.',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
+
   function formatDate(dateString: string) {
     return new Date(dateString).toLocaleDateString('pt-PT', {
       day: '2-digit',
@@ -273,58 +389,139 @@ export default function UsersPage() {
                               <span className="text-slate-600">{user.email || '-'}</span>
                             </td>
                             <td className="py-4 px-4">
-                              {isEditing ? (
-                                <div className="flex items-center gap-2">
-                                  <Input
-                                    type="text"
-                                    value={doctorCodeInput}
-                                    onChange={(e) => setDoctorCodeInput(e.target.value)}
-                                    placeholder="Ex: 12345"
-                                    className="w-24 h-8 text-sm"
-                                    autoFocus
-                                  />
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => updateDoctorCode(user.id)}
-                                    disabled={isUpdating}
-                                    className="h-8 w-8 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                                  >
-                                    {isUpdating ? (
-                                      <RefreshCw className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Check className="h-4 w-4" />
+                              <div className="flex flex-col gap-2">
+                                {/* Primary doctor code */}
+                                {isEditing ? (
+                                  <div className="flex items-center gap-2">
+                                    <Input
+                                      type="text"
+                                      value={doctorCodeInput}
+                                      onChange={(e) => setDoctorCodeInput(e.target.value)}
+                                      placeholder="Código principal"
+                                      className="w-24 h-8 text-sm"
+                                      autoFocus
+                                    />
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => updateDoctorCode(user.id)}
+                                      disabled={isUpdating}
+                                      className="h-8 w-8 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                    >
+                                      {isUpdating ? (
+                                        <RefreshCw className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Check className="h-4 w-4" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={cancelEditingDoctorCode}
+                                      disabled={isUpdating}
+                                      className="h-8 w-8 p-0 text-slate-400 hover:text-slate-600"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {/* Primary code */}
+                                    {user.doctor_code && (
+                                      <div className="flex items-center gap-1">
+                                        <Badge variant="secondary" className="bg-cyan-50 text-cyan-700 border border-cyan-200">
+                                          {user.doctor_code}
+                                        </Badge>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => startEditingDoctorCode(user)}
+                                          className="h-5 w-5 p-0 text-slate-400 hover:text-slate-600"
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                      </div>
                                     )}
-                                  </Button>
+                                    {/* Additional codes */}
+                                    {user.additional_codes.map((code) => (
+                                      <div key={code} className="flex items-center gap-0.5">
+                                        <Badge variant="secondary" className="bg-violet-50 text-violet-700 border border-violet-200">
+                                          {code}
+                                        </Badge>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => removeDoctorCode(user.id, code)}
+                                          disabled={isUpdating}
+                                          className="h-5 w-5 p-0 text-slate-400 hover:text-rose-500"
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ))}
+                                    {/* Add button or no codes message */}
+                                    {!user.doctor_code && user.additional_codes.length === 0 && (
+                                      <span className="text-slate-400 text-sm">Não definido</span>
+                                    )}
+                                    {!user.doctor_code && user.additional_codes.length === 0 && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => startEditingDoctorCode(user)}
+                                        className="h-6 w-6 p-0 text-slate-400 hover:text-slate-600"
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                )}
+                                
+                                {/* Add new code row */}
+                                {addingCodeUserId === user.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <Input
+                                      type="text"
+                                      value={newCodeInput}
+                                      onChange={(e) => setNewCodeInput(e.target.value)}
+                                      placeholder="Novo código"
+                                      className="w-24 h-7 text-sm"
+                                      autoFocus
+                                    />
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => addDoctorCode(user.id)}
+                                      disabled={isUpdating || !newCodeInput.trim()}
+                                      className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                    >
+                                      {isUpdating ? (
+                                        <RefreshCw className="h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <Check className="h-3 w-3" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => { setAddingCodeUserId(null); setNewCodeInput(''); }}
+                                      disabled={isUpdating}
+                                      className="h-7 w-7 p-0 text-slate-400 hover:text-slate-600"
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                ) : (
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={cancelEditingDoctorCode}
-                                    disabled={isUpdating}
-                                    className="h-8 w-8 p-0 text-slate-400 hover:text-slate-600"
+                                    onClick={() => setAddingCodeUserId(user.id)}
+                                    className="h-6 px-2 text-xs text-slate-500 hover:text-slate-700 gap-1 justify-start"
                                   >
-                                    <X className="h-4 w-4" />
+                                    <Plus className="h-3 w-3" />
+                                    Adicionar código
                                   </Button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  {user.doctor_code ? (
-                                    <Badge variant="secondary" className="bg-cyan-50 text-cyan-700 border border-cyan-200">
-                                      {user.doctor_code}
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-slate-400 text-sm">Não definido</span>
-                                  )}
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => startEditingDoctorCode(user)}
-                                    className="h-6 w-6 p-0 text-slate-400 hover:text-slate-600"
-                                  >
-                                    <Pencil className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              )}
+                                )}
+                              </div>
                             </td>
                             <td className="py-4 px-4">
                               <Badge 

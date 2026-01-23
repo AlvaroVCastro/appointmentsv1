@@ -71,6 +71,7 @@ function isSaturday(dateTime: string): boolean {
  * The slots parameter is actually MergedSlot[] from getDoctorSchedule().
  * The appointments parameter is kept for backward compatibility but not used.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function processScheduleData(slots: MergedSlot[], _appointments: Appointment[]): ScheduleSlot[] {
   console.log(`[processScheduleData] Processing ${slots.length} pre-merged slots`);
 

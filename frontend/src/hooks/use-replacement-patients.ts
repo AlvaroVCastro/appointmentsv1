@@ -96,9 +96,9 @@ function getMinimumAllowedDate(): Date {
 
 /**
  * Gets dates for the same weekday over the next N weeks.
- * Example: If slotDate is Friday, returns the next 3 Fridays.
+ * Example: If slotDate is Friday, returns the next 2 Fridays.
  */
-function getSameWeekdayDates(slotDate: Date, weeks: number = 3): Date[] {
+function getSameWeekdayDates(slotDate: Date, weeks: number = 2): Date[] {
   const dates: Date[] = [];
   const dayOfWeek = slotDate.getDay();
   
@@ -145,8 +145,8 @@ function findTop3IdealCandidates(
   const slotWeekday = slotDateTime.getDay();
   const slotHour = slotDateTime.getHours();
   
-  // Get the next 3 weeks' dates for the same weekday
-  const targetDates = getSameWeekdayDates(slotDateTime, 3);
+  // Get the next 2 weeks' dates for the same weekday
+  const targetDates = getSameWeekdayDates(slotDateTime, 2);
   
   // Filter candidates that pass the 48-hour gap
   const candidatesAfter48h = allCandidates.filter(c => {
@@ -364,7 +364,7 @@ export function useReplacementPatients(doctorCode: string) {
       // Step 5: Fetch patient details for all eligible blocks
       const allEnrichedCandidates = await enrichBlocksWithPatientDetails(eligibleBlocks, nowTime);
 
-      // Step 6: Apply 48-hour filter for all candidates
+      // Step 6: Apply 48-hour filter for all candidates FIRST
       const minAllowedDate = getMinimumAllowedDate();
       const filteredAllCandidates = allEnrichedCandidates.filter(c => {
         const candidateDate = new Date(c.currentAppointmentDateTime);
@@ -373,8 +373,8 @@ export function useReplacementPatients(doctorCode: string) {
 
       console.log('[loadReplacementPatients] After 48h filter:', filteredAllCandidates.length, 'candidates');
 
-      // Step 7: Find top 3 ideal candidates
-      const { ideal, hasMore } = findTop3IdealCandidates(allEnrichedCandidates, selectedSlotDateTime);
+      // Step 7: Find top 3 ideal candidates FROM the 48h-filtered list (not allEnrichedCandidates!)
+      const { ideal, hasMore } = findTop3IdealCandidates(filteredAllCandidates, selectedSlotDateTime);
 
       console.log('[loadReplacementPatients] Ideal:', ideal.length, 'All:', filteredAllCandidates.length);
 

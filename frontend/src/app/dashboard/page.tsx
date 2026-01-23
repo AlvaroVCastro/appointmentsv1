@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RefreshCw, Calendar, CalendarCheck, Clock, User, Search, TrendingUp, BarChart3 } from 'lucide-react';
 
 interface DashboardStats {
@@ -37,8 +38,10 @@ interface UserProfile {
   email: string;
   role: string;
   doctorCode: string | null;
+  doctorCodes: string[];
   isAdmin: boolean;
   isDoctor: boolean;
+  hasMultipleDoctorCodes: boolean;
 }
 
 function DashboardContent() {
@@ -64,13 +67,19 @@ function DashboardContent() {
     }
   }, [currentDoctorCode]);
 
-  // Auto-load doctor's own data if they're a doctor (not admin)
+  // Auto-load doctor's own data if they're a doctor (not admin) with single code
   useEffect(() => {
-    if (profile && !profile.isAdmin && profile.doctorCode && !currentDoctorCode) {
+    if (profile && !profile.isAdmin && !profile.hasMultipleDoctorCodes && profile.doctorCode && !currentDoctorCode) {
       setCurrentDoctorCode(profile.doctorCode);
       setSearchCode(profile.doctorCode);
     }
   }, [profile, currentDoctorCode]);
+
+  // Handle multi-code selection
+  const handleMultiCodeSelection = (code: string) => {
+    setCurrentDoctorCode(code);
+    setSearchCode(code);
+  };
 
   async function loadProfile() {
     try {
@@ -154,6 +163,7 @@ function DashboardContent() {
   }
 
   const isAdmin = profile?.isAdmin;
+  const showMultiCodeSelector = !isAdmin && profile?.hasMultipleDoctorCodes && profile?.doctorCodes?.length > 1;
   const doctorName = stats?.doctor_name || profile?.fullName || 'Desconhecido';
 
   return (
@@ -214,6 +224,32 @@ function DashboardContent() {
                     )}
                   </Button>
                 </form>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Multi-code selector for users with multiple doctor codes */}
+          {showMultiCodeSelector && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Selecione o Médico</CardTitle>
+                <CardDescription>
+                  Tem acesso a múltiplos médicos. Selecione qual pretende visualizar.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Select value={currentDoctorCode || ''} onValueChange={handleMultiCodeSelection}>
+                  <SelectTrigger className="w-[250px]">
+                    <SelectValue placeholder="Escolha um médico" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profile?.doctorCodes?.map((code) => (
+                      <SelectItem key={code} value={code}>
+                        Código {code}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </CardContent>
             </Card>
           )}
@@ -367,7 +403,7 @@ function DashboardContent() {
           )}
 
           {/* No doctor code associated message for non-admins */}
-          {!currentDoctorCode && !isAdmin && profile && !profile.doctorCode && (
+          {!currentDoctorCode && !isAdmin && profile && !profile.isDoctor && (
             <Card>
               <CardContent className="pt-6">
                 <div className="text-center py-8">

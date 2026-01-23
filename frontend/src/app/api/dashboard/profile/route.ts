@@ -58,16 +58,38 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get additional doctor codes from user_doctor_codes table
+    const { data: additionalCodes } = await serviceClient
+      .schema('appointments_app')
+      .from('user_doctor_codes')
+      .select('doctor_code')
+      .eq('user_id', user.id);
+
+    // Combine primary doctor code with additional codes
+    const allDoctorCodes: string[] = [];
+    if (profile.doctor_code) {
+      allDoctorCodes.push(profile.doctor_code);
+    }
+    if (additionalCodes && additionalCodes.length > 0) {
+      for (const row of additionalCodes) {
+        if (row.doctor_code && !allDoctorCodes.includes(row.doctor_code)) {
+          allDoctorCodes.push(row.doctor_code);
+        }
+      }
+    }
+
     return NextResponse.json({
       profile: {
         id: profile.id,
         fullName: profile.full_name,
         email: profile.email,
         role: profile.role,
-        doctorCode: profile.doctor_code,
+        doctorCode: profile.doctor_code, // Primary code (backwards compat)
+        doctorCodes: allDoctorCodes,     // All codes (primary + additional)
         avatarUrl: profile.avatar_url,
         isAdmin: profile.role === 'admin',
-        isDoctor: !!profile.doctor_code,
+        isDoctor: allDoctorCodes.length > 0,
+        hasMultipleDoctorCodes: allDoctorCodes.length > 1,
       },
     });
   } catch (error) {

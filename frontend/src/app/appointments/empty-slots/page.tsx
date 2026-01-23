@@ -12,7 +12,7 @@ import { useSchedule } from '@/hooks/use-schedule';
 import { useReplacementPatients } from '@/hooks/use-replacement-patients';
 import { ReplacementPatientsList } from '@/components/appointments/replacement-patients-list';
 import { DoctorSelector } from '@/components/appointments/doctor-selector';
-import { formatFullDate, isEmptySlot, formatDateKey, parseDurationToMinutes } from '@/lib/appointment-utils';
+import { formatFullDate, isEmptySlot, formatDateKey, parseDurationToMinutes, mergeConsecutiveEmptySlots } from '@/lib/appointment-utils';
 import type { DoctorSearchResult } from '@/lib/glintt-api';
 import type { ScheduleSlot } from '@/lib/appointment-utils';
 import { Clock, Calendar, User, Loader2 } from 'lucide-react';
@@ -36,8 +36,10 @@ interface UserProfile {
   email: string;
   role: string;
   doctorCode: string | null;
+  doctorCodes: string[];
   isAdmin: boolean;
   isDoctor: boolean;
+  hasMultipleDoctorCodes: boolean;
 }
 
 export default function EmptySlotsPage() {
@@ -84,12 +86,17 @@ function EmptySlotsContent() {
     loadProfile();
   }, []);
 
-  // Auto-load doctor's schedule if they're a doctor (not admin)
+  // Auto-load doctor's schedule if they're a doctor (not admin) with single code
   useEffect(() => {
-    if (!profileLoading && profile && !profile.isAdmin && profile.doctorCode && !doctorCode && !loading) {
+    if (!profileLoading && profile && !profile.isAdmin && !profile.hasMultipleDoctorCodes && profile.doctorCode && !doctorCode && !loading) {
       loadSchedule(profile.doctorCode);
     }
   }, [profileLoading, profile, doctorCode, loading, loadSchedule]);
+
+  // Handle multi-code selection
+  const handleMultiCodeSelection = (code: string) => {
+    loadSchedule(code);
+  };
 
   // Auto-load doctor from query params if provided (admin or matching user)
   useEffect(() => {
@@ -102,25 +109,38 @@ function EmptySlotsContent() {
 
   const {
     selectedSlot,
-    replacementCandidates,
+    idealCandidates,
+    allCandidates,
+    hasMoreCandidates,
+    showAllCandidates,
+    toggleShowAllCandidates,
     loadingReplacements,
     error: replacementError,
-    loadReplacementPatients,
+    handleSlotClick: handleSlotClickFromHook,
   } = useReplacementPatients(doctorCode);
 
   const [sortOption, setSortOption] = useState<FreeSlotSortOption>('largest-gap');
 
-  // Get free slots inbox items
-  const freeSlotsItems = useMemo((): FreeSlotInboxItem[] => {
+  // Merge consecutive empty slots first (same logic as Calendário)
+  const mergedSchedule = useMemo(() => {
     if (!schedule || schedule.length === 0) return [];
+    return mergeConsecutiveEmptySlots(schedule);
+  }, [schedule]);
+
+  // Get free slots inbox items (now using merged slots)
+  const freeSlotsItems = useMemo((): FreeSlotInboxItem[] => {
+    if (!mergedSchedule || mergedSchedule.length === 0) return [];
     
-    const freeSlots = schedule.filter(slot => isEmptySlot(slot));
+    // Filter for empty slots (which are now merged/conciliated)
+    const freeSlots = mergedSchedule.filter(slot => isEmptySlot(slot));
     
     const items: FreeSlotInboxItem[] = freeSlots.map((slot, index) => {
       const start = new Date(slot.dateTime);
+      // Use the merged duration (already calculated by mergeConsecutiveEmptySlots)
       const durationMinutes = slot.durationMinutes ?? parseDurationToMinutes(slot.slot?.Duration || '00:30:00');
       const end = new Date(start.getTime() + durationMinutes * 60000);
       
+      // Calculate gap from previous slot (useful for sorting by largest gap)
       let previousGapMinutes = durationMinutes;
       if (index > 0) {
         const prevSlot = freeSlots[index - 1];
@@ -141,7 +161,7 @@ function EmptySlotsContent() {
     });
     
     return items;
-  }, [schedule]);
+  }, [mergedSchedule]);
 
   // Sort free slots
   const sortedFreeSlots = useMemo(() => {
@@ -171,7 +191,7 @@ function EmptySlotsContent() {
   };
 
   const handleSlotClick = (item: FreeSlotInboxItem) => {
-    loadReplacementPatients(item.slot);
+    handleSlotClickFromHook(item.slot);
   };
 
   const formatTime = (date: Date): string => {
@@ -195,6 +215,7 @@ function EmptySlotsContent() {
 
   const isAdmin = profile?.isAdmin;
   const showDoctorSelector = isAdmin;
+  const showMultiCodeSelector = !isAdmin && profile?.hasMultipleDoctorCodes && profile?.doctorCodes?.length > 1;
 
   // Show loading while profile is being fetched
   if (profileLoading) {
@@ -206,7 +227,7 @@ function EmptySlotsContent() {
   }
 
   // Show message if user is not a doctor and not an admin
-  if (!isAdmin && !profile?.doctorCode) {
+  if (!isAdmin && !profile?.isDoctor) {
     return (
       <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
         <div className="flex-1 flex items-center justify-center p-4">
@@ -261,6 +282,25 @@ function EmptySlotsContent() {
                   onDoctorCodeSubmit={handleDoctorCodeSubmit}
                   initialValue={initialDoctorName || initialDoctorCode || doctorCode}
                 />
+              </CardContent>
+            )}
+            {showMultiCodeSelector && (
+              <CardContent>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-600">Selecione o médico:</span>
+                  <Select value={doctorCode || ''} onValueChange={handleMultiCodeSelection}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Escolha um médico" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profile?.doctorCodes?.map((code) => (
+                        <SelectItem key={code} value={code}>
+                          Código {code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </CardContent>
             )}
           </Card>
@@ -339,7 +379,7 @@ function EmptySlotsContent() {
                               </div>
                               <div className="flex-shrink-0 text-right">
                                 <div className="text-sm font-medium text-slate-700">
-                                  Gap: {formatGap(item.previousGapMinutes)}
+                                  Gap: {formatGap(item.durationMinutes)}
                                 </div>
                               </div>
                             </div>
@@ -361,9 +401,17 @@ function EmptySlotsContent() {
                   </CardHeader>
                   <CardContent>
                     <ReplacementPatientsList
-                      candidates={replacementCandidates}
+                      candidates={showAllCandidates ? allCandidates : idealCandidates}
                       loading={loadingReplacements}
                       hasSelection={!!selectedSlot}
+                      error={replacementError}
+                      selectedSlot={selectedSlot}
+                      doctorCode={doctorCode}
+                      idealCandidates={idealCandidates}
+                      allCandidates={allCandidates}
+                      hasMoreCandidates={hasMoreCandidates}
+                      showAllCandidates={showAllCandidates}
+                      onToggleShowAll={toggleShowAllCandidates}
                     />
                   </CardContent>
                 </Card>

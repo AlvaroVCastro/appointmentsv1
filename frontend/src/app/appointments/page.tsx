@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, User } from 'lucide-react';
 import Loader from '@/components/ui/loader';
 import { useSchedule } from '@/hooks/use-schedule';
@@ -26,8 +27,10 @@ interface UserProfile {
   email: string;
   role: string;
   doctorCode: string | null;
+  doctorCodes: string[];
   isAdmin: boolean;
   isDoctor: boolean;
+  hasMultipleDoctorCodes: boolean;
 }
 
 function AppointmentsPageContent() {
@@ -111,12 +114,19 @@ function AppointmentsPageContent() {
     loadProfile();
   }, []);
 
-  // Auto-load doctor's schedule if they're a doctor (not admin)
+  // Auto-load doctor's schedule if they're a doctor (not admin) with single code
   useEffect(() => {
-    if (!profileLoading && profile && !profile.isAdmin && profile.doctorCode && !doctorCode && !loading) {
+    if (!profileLoading && profile && !profile.isAdmin && !profile.hasMultipleDoctorCodes && profile.doctorCode && !doctorCode && !loading) {
       loadSchedule(profile.doctorCode);
     }
   }, [profileLoading, profile, doctorCode, loading, loadSchedule]);
+
+  // Handle doctor code selection for users with multiple codes
+  const handleMultiCodeSelection = (code: string) => {
+    setSelectedDate(null);
+    clearSelection();
+    loadSchedule(code);
+  };
 
   // Auto-load doctor from URL params (e.g., after returning from confirmation page)
   useEffect(() => {
@@ -161,6 +171,7 @@ function AppointmentsPageContent() {
 
   const isAdmin = profile?.isAdmin;
   const showDoctorSelector = isAdmin; // Only admins can search for doctors
+  const showMultiCodeSelector = !isAdmin && profile?.hasMultipleDoctorCodes && profile?.doctorCodes?.length > 1;
 
   // Show loading while profile is being fetched
   if (profileLoading) {
@@ -171,8 +182,8 @@ function AppointmentsPageContent() {
     );
   }
 
-  // Show message if user is not a doctor and not an admin
-  if (!isAdmin && !profile?.doctorCode) {
+  // Show message if user is not a doctor and not an admin and has no codes
+  if (!isAdmin && !profile?.isDoctor) {
     return (
       <div className="h-full flex flex-col bg-slate-50 overflow-hidden">
         <div className="flex-1 flex items-center justify-center p-4">
@@ -228,6 +239,31 @@ function AppointmentsPageContent() {
                 )}
               </CardContent>
             )}
+            {showMultiCodeSelector && (
+              <CardContent>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-600">Selecione o médico:</span>
+                  <Select value={doctorCode || ''} onValueChange={handleMultiCodeSelection}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="Escolha um médico" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profile?.doctorCodes?.map((code) => (
+                        <SelectItem key={code} value={code}>
+                          Código {code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {loading && (
+                  <div className="flex items-center gap-2 mt-3 text-sm text-slate-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    A carregar agenda...
+                  </div>
+                )}
+              </CardContent>
+            )}
           </Card>
 
           {error && (
@@ -251,7 +287,7 @@ function AppointmentsPageContent() {
           )}
 
           {!loading && mergedSchedule.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_320px] gap-3 md:min-h-[700px]">
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(380px,420px)] gap-4 lg:min-h-[700px]">
               {/* Left column: Schedule */}
               <Card className="flex flex-col min-w-0 overflow-hidden">
                 <CardHeader className="flex-shrink-0">
@@ -295,7 +331,7 @@ function AppointmentsPageContent() {
               </Card>
 
               {/* Right column: Replacement Candidates */}
-              <Card className="flex flex-col md:sticky md:top-4 md:self-start md:h-[calc(100vh-100px)] overflow-hidden">
+              <Card className="flex flex-col lg:sticky lg:top-4 lg:self-start lg:h-[calc(100vh-100px)] overflow-hidden">
                 <CardHeader className="flex-shrink-0 pb-3">
                   <CardTitle className="text-base">Sugestões de Antecipação</CardTitle>
                   <CardDescription className="text-xs">

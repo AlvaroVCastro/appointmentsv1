@@ -5,12 +5,14 @@ import { createClient } from '@supabase/supabase-js';
 /**
  * PATCH /api/users/role
  * 
- * Updates a user's role and/or doctor_code. Admin only.
+ * Updates a user's role, doctor_code, or manages additional doctor codes. Admin only.
  * 
  * Body:
  * - userId: string (required)
  * - newRole?: 'admin' | 'user' (optional)
- * - doctorCode?: string | null (optional)
+ * - doctorCode?: string | null (optional) - Primary doctor code in user_profiles
+ * - addDoctorCode?: string (optional) - Add an additional doctor code
+ * - removeDoctorCode?: string (optional) - Remove an additional doctor code
  */
 export async function PATCH(request: NextRequest) {
   try {
@@ -56,13 +58,59 @@ export async function PATCH(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { userId, newRole, doctorCode } = body;
+    const { userId, newRole, doctorCode, addDoctorCode, removeDoctorCode } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'Missing userId' }, { status: 400 });
     }
 
-    // Build update object
+    // Handle adding additional doctor code
+    if (addDoctorCode) {
+      const { error: insertError } = await serviceClient
+        .schema('appointments_app')
+        .from('user_doctor_codes')
+        .insert({ user_id: userId, doctor_code: addDoctorCode });
+
+      if (insertError) {
+        console.error('[api/users/role] Insert doctor code error:', insertError);
+        if (insertError.code === '23505') {
+          return NextResponse.json(
+            { error: 'Este código já está associado a este utilizador' },
+            { status: 400 }
+          );
+        }
+        return NextResponse.json({ error: 'Failed to add doctor code' }, { status: 500 });
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        userId, 
+        addedDoctorCode: addDoctorCode,
+      });
+    }
+
+    // Handle removing additional doctor code
+    if (removeDoctorCode) {
+      const { error: deleteError } = await serviceClient
+        .schema('appointments_app')
+        .from('user_doctor_codes')
+        .delete()
+        .eq('user_id', userId)
+        .eq('doctor_code', removeDoctorCode);
+
+      if (deleteError) {
+        console.error('[api/users/role] Delete doctor code error:', deleteError);
+        return NextResponse.json({ error: 'Failed to remove doctor code' }, { status: 500 });
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        userId, 
+        removedDoctorCode: removeDoctorCode,
+      });
+    }
+
+    // Build update object for user_profiles
     const updateData: { role?: string; doctor_code?: string | null } = {};
 
     // Handle role update
@@ -79,7 +127,7 @@ export async function PATCH(request: NextRequest) {
       updateData.role = newRole;
     }
 
-    // Handle doctor_code update
+    // Handle doctor_code update (primary code in user_profiles)
     if (doctorCode !== undefined) {
       // doctorCode can be a string or null (to remove)
       updateData.doctor_code = doctorCode || null;
