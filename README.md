@@ -1,4 +1,4 @@
-# Appointment App
+# Appointment App 
 
 Appointment management application for Malo Clinic to help fill empty spots in doctor schedules.
 
