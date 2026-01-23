@@ -86,11 +86,38 @@ function isSlotEligibleForSuggestions(slot: ScheduleSlot): boolean {
 }
 
 /**
- * Calculates the minimum allowed date for suggestions (48-hour gap from now).
+ * Calculates the minimum allowed date for suggestions.
+ * Requires 2 BUSINESS DAYS gap from the slot date (not from now).
+ * Business days = weekdays (Monday-Friday), skipping Saturday and Sunday.
+ * 
+ * Example: If slot is Wednesday Feb 4th, minimum suggestion is Monday Feb 9th
+ * (Thursday 5th, Friday 6th = 2 business days, then weekend, then Monday)
  */
-function getMinimumAllowedDate(): Date {
-  const minDate = new Date();
-  minDate.setHours(minDate.getHours() + 48);
+function getMinimumAllowedDate(slotDateTime: Date): Date {
+  const minDate = new Date(slotDateTime);
+  
+  // Reset to start of next day
+  minDate.setHours(0, 0, 0, 0);
+  minDate.setDate(minDate.getDate() + 1);
+  
+  // Add 2 business days (skip weekends)
+  let businessDaysToAdd = 2;
+  while (businessDaysToAdd > 0) {
+    const dayOfWeek = minDate.getDay();
+    // Skip Saturday (6) and Sunday (0)
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      businessDaysToAdd--;
+    }
+    if (businessDaysToAdd > 0) {
+      minDate.setDate(minDate.getDate() + 1);
+    }
+  }
+  
+  // Ensure we land on a weekday (in case we end on a weekend)
+  while (minDate.getDay() === 0 || minDate.getDay() === 6) {
+    minDate.setDate(minDate.getDate() + 1);
+  }
+  
   return minDate;
 }
 
@@ -141,7 +168,7 @@ function findTop3IdealCandidates(
   allCandidates: ReplacementCandidate[],
   slotDateTime: Date
 ): { ideal: ReplacementCandidate[]; hasMore: boolean } {
-  const minAllowedDate = getMinimumAllowedDate();
+  const minAllowedDate = getMinimumAllowedDate(slotDateTime);
   const slotWeekday = slotDateTime.getDay();
   const slotHour = slotDateTime.getHours();
   
@@ -364,14 +391,15 @@ export function useReplacementPatients(doctorCode: string) {
       // Step 5: Fetch patient details for all eligible blocks
       const allEnrichedCandidates = await enrichBlocksWithPatientDetails(eligibleBlocks, nowTime);
 
-      // Step 6: Apply 48-hour filter for all candidates FIRST
-      const minAllowedDate = getMinimumAllowedDate();
+      // Step 6: Apply 2-business-days filter for all candidates FIRST
+      // The minimum allowed date is calculated from the SLOT date, not from now
+      const minAllowedDate = getMinimumAllowedDate(selectedSlotDateTime);
       const filteredAllCandidates = allEnrichedCandidates.filter(c => {
         const candidateDate = new Date(c.currentAppointmentDateTime);
         return candidateDate >= minAllowedDate;
       });
 
-      console.log('[loadReplacementPatients] After 48h filter:', filteredAllCandidates.length, 'candidates');
+      console.log('[loadReplacementPatients] After 2-business-days filter:', filteredAllCandidates.length, 'candidates (min date:', minAllowedDate.toISOString(), ')');
 
       // Step 7: Find top 3 ideal candidates FROM the 48h-filtered list (not allEnrichedCandidates!)
       const { ideal, hasMore } = findTop3IdealCandidates(filteredAllCandidates, selectedSlotDateTime);
