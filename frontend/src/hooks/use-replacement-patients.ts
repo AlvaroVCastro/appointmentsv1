@@ -59,6 +59,7 @@ export interface ReplacementCandidate {
   email?: string;
   currentAppointmentDateTime: string; // block.startDateTime
   currentDurationMinutes: number;     // block.durationMinutes
+  slotCount: number;                  // number of consecutive slots in this block
   appointments: ComparableAppointment[]; // individual appointments in the block
   anticipationDays: number; // days until this appointment
 }
@@ -388,10 +389,19 @@ export function useReplacementPatients(doctorCode: string) {
         return deltaA - deltaB;
       });
 
-      // Step 5: Fetch patient details for all eligible blocks
-      const allEnrichedCandidates = await enrichBlocksWithPatientDetails(eligibleBlocks, nowTime);
+      // Step 5: Limit blocks to process for performance
+      // We want: Top 3 ideal + max 15 extras = 18 total
+      // Fetch a bit more (25) to account for 2-business-days filter
+      const MAX_BLOCKS_TO_PROCESS = 25;
+      const blocksToProcess = eligibleBlocks.slice(0, MAX_BLOCKS_TO_PROCESS);
+      const hasMoreBlocksAvailable = eligibleBlocks.length > MAX_BLOCKS_TO_PROCESS;
 
-      // Step 6: Apply 2-business-days filter for all candidates FIRST
+      console.log('[loadReplacementPatients] Processing', blocksToProcess.length, 'of', eligibleBlocks.length, 'eligible blocks (limited for performance)');
+
+      // Step 6: Fetch patient details for limited blocks
+      const allEnrichedCandidates = await enrichBlocksWithPatientDetails(blocksToProcess, nowTime);
+
+      // Step 7: Apply 2-business-days filter for all candidates FIRST
       // The minimum allowed date is calculated from the SLOT date, not from now
       const minAllowedDate = getMinimumAllowedDate(selectedSlotDateTime);
       const filteredAllCandidates = allEnrichedCandidates.filter(c => {
@@ -401,14 +411,19 @@ export function useReplacementPatients(doctorCode: string) {
 
       console.log('[loadReplacementPatients] After 2-business-days filter:', filteredAllCandidates.length, 'candidates (min date:', minAllowedDate.toISOString(), ')');
 
-      // Step 7: Find top 3 ideal candidates FROM the 48h-filtered list (not allEnrichedCandidates!)
+      // Step 8: Find top 3 ideal candidates FROM the filtered list
       const { ideal, hasMore } = findTop3IdealCandidates(filteredAllCandidates, selectedSlotDateTime);
 
-      console.log('[loadReplacementPatients] Ideal:', ideal.length, 'All:', filteredAllCandidates.length);
+      // Step 9: Limit total candidates shown: Top 3 ideal + max 15 extras = 18 total
+      const MAX_EXTRA_CANDIDATES = 15;
+      const MAX_TOTAL_CANDIDATES = 3 + MAX_EXTRA_CANDIDATES; // 18
+      const limitedAllCandidates = filteredAllCandidates.slice(0, MAX_TOTAL_CANDIDATES);
+
+      console.log('[loadReplacementPatients] Ideal:', ideal.length, 'Showing:', limitedAllCandidates.length, 'of', filteredAllCandidates.length);
 
       setIdealCandidates(ideal);
-      setAllCandidates(filteredAllCandidates);
-      setHasMoreCandidates(hasMore || filteredAllCandidates.length > ideal.length);
+      setAllCandidates(limitedAllCandidates);
+      setHasMoreCandidates(hasMore || hasMoreBlocksAvailable || filteredAllCandidates.length > MAX_TOTAL_CANDIDATES);
 
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load replacement candidates';
@@ -571,6 +586,7 @@ async function enrichBlocksWithPatientDetails(
       email: patient?.contacts?.email,
       currentAppointmentDateTime: block.startDateTime,
       currentDurationMinutes: block.durationMinutes,
+      slotCount: block.slotCount,
       appointments: block.appointments,
       anticipationDays,
     };

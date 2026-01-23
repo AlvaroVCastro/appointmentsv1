@@ -301,7 +301,7 @@ function CandidatesList({
     <>
       {candidates.map((candidate) => {
         const { date, time } = formatAppointmentDateTime(candidate.currentAppointmentDateTime);
-        const isBlock = candidate.appointments.length > 1;
+        const isBlock = candidate.slotCount > 1;
         const isIdeal = highlightIdeal && idealBlockIds.includes(candidate.blockId);
 
         return (
@@ -331,7 +331,7 @@ function CandidatesList({
               {isBlock && (
                 <Badge className="bg-orange-100 text-orange-800 border-orange-200 ml-2 flex-shrink-0">
                   <Users className="h-3 w-3 mr-1" />
-                  Slot ({candidate.appointments.length})
+                  Slot ({candidate.slotCount})
                 </Badge>
               )}
             </div>
@@ -373,10 +373,10 @@ function CandidatesList({
               </div>
             </div>
 
-            {/* Block details (if multiple appointments) */}
+            {/* Block details (if multiple consecutive slots) */}
             {isBlock && (
               <div className="mb-3 text-xs">
-                <div className="text-slate-500 mb-1">Marcações do slot:</div>
+                <div className="text-slate-500 mb-1">Marcações do slot ({candidate.slotCount} slots consecutivos):</div>
                 <div className="space-y-1">
                   {candidate.appointments.map((apt, idx) => {
                     const aptTime = formatAppointmentDateTime(apt.startDateTime);

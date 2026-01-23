@@ -202,6 +202,15 @@ async function getScheduledAppointments(
 
   for (const apt of data) {
     const serviceCode = apt.performingService?.code || apt.serviceCode || '';
+    const medicalActCode = apt.medicalAct?.code || apt.medicalActCode || '';
+    
+    // SAFETY FILTER: Only include appointments with medicalActCode = '1'
+    // The API parameter should filter this, but some APIs don't respect it
+    if (medicalActCode !== '1') {
+      console.log(`[getScheduledAppointments] Skipping appointment with medicalActCode=${medicalActCode} (only accepting '1')`);
+      continue;
+    }
+    
     if (serviceCode) {
       serviceCodes.add(serviceCode);
     }
@@ -214,7 +223,7 @@ async function getScheduledAppointments(
       appointmentHour: apt.appointmentHour || '',  // Key field for matching
       duration: apt.duration || '',
       serviceCode,
-      medicalActCode: apt.medicalAct?.code || apt.medicalActCode || '',
+      medicalActCode,
       humanResourceCode: apt.doctorCode || apt.humanResourceCode || '',
       episodeId: apt.parentVisit?.id,
       episodeType: apt.parentVisit?.type,
@@ -223,7 +232,7 @@ async function getScheduledAppointments(
     });
   }
 
-  console.log(`[getScheduledAppointments] doctor=${doctorCode} appts=${appointments.length} serviceCodes=[${Array.from(serviceCodes).join(', ')}]`);
+  console.log(`[getScheduledAppointments] doctor=${doctorCode} appts=${appointments.length} (filtered for medicalAct=1) serviceCodes=[${Array.from(serviceCodes).join(', ')}]`);
   
   return { appointments, serviceCodes };
 }
@@ -766,6 +775,7 @@ export interface ConciliatedBlock {
   startDateTime: string;  // start of the first appointment
   endDateTime: string;    // end of the last appointment
   durationMinutes: number; // total duration of the block
+  slotCount: number;       // number of consecutive slots in this block
   appointments: ComparableAppointment[];
 }
 
@@ -793,8 +803,29 @@ function computeEndDateTime(startDateTime: string, durationMinutes: number): str
 }
 
 /**
+ * Parses slot Duration field which comes in format "2026-01-01T01:00:00" meaning 1 hour.
+ * Returns duration in minutes.
+ */
+function parseSlotDuration(durationStr: string | undefined): number {
+  if (!durationStr) return 30; // Default 30 min
+  
+  // Duration format is like "2026-01-01T01:00:00" where the time part is the actual duration
+  const timePart = durationStr.split('T')[1];
+  if (!timePart) return 30;
+  
+  const parts = timePart.split(':');
+  if (parts.length >= 2) {
+    const hours = parseInt(parts[0], 10) || 0;
+    const minutes = parseInt(parts[1], 10) || 0;
+    return hours * 60 + minutes;
+  }
+  return 30;
+}
+
+/**
  * Fetches all appointments for a doctor within a time window (e.g., 30 days).
- * Returns normalized ComparableAppointment objects.
+ * Also fetches slots to get accurate duration information.
+ * Returns normalized ComparableAppointment objects with correct durations.
  */
 export async function getDoctorAppointmentsForWindow(
   doctorCode: string,
@@ -803,6 +834,7 @@ export async function getDoctorAppointmentsForWindow(
 ): Promise<ComparableAppointment[]> {
   const token = await getAuthToken();
   
+  // Step 1: Fetch appointments
   const appointmentsUrl = `${GLINTT_URL}/Hms.OutPatient.Api/hms/outpatient/Appointment`;
   const appointmentsParams = new URLSearchParams({
     beginDate: new Date(fromDate).toISOString(),
@@ -812,7 +844,7 @@ export async function getDoctorAppointmentsForWindow(
     doctorCode,
   });
 
-  const response = await fetch(
+  const appointmentsResponse = await fetch(
     `${appointmentsUrl}?${appointmentsParams.toString()}`,
     {
       headers: {
@@ -822,23 +854,57 @@ export async function getDoctorAppointmentsForWindow(
     }
   );
 
-  if (!response.ok) {
+  if (!appointmentsResponse.ok) {
     console.warn(
-      `[getDoctorAppointmentsForWindow] Failed to fetch appointments for doctor ${doctorCode}: ${response.statusText}`
+      `[getDoctorAppointmentsForWindow] Failed to fetch appointments for doctor ${doctorCode}: ${appointmentsResponse.statusText}`
     );
     return [];
   }
 
-  const data = await response.json() as RawAppointmentResponse[];
+  const appointmentsData = await appointmentsResponse.json() as RawAppointmentResponse[];
   
-  if (!data || !Array.isArray(data)) {
+  if (!appointmentsData || !Array.isArray(appointmentsData)) {
     return [];
   }
 
-  // Normalize to ComparableAppointment, excluding ANNULLED and RESCHEDULED
+  // Extract unique service codes from appointments
+  const serviceCodes = new Set<string>();
+  for (const apt of appointmentsData) {
+    const serviceCode = apt.performingService?.code || apt.serviceCode;
+    if (serviceCode) {
+      serviceCodes.add(serviceCode);
+    }
+  }
+
+  console.log(`[getDoctorAppointmentsForWindow] Found ${appointmentsData.length} raw appointments, serviceCodes: [${Array.from(serviceCodes).join(', ')}]`);
+
+  // Step 2: Fetch slots to get accurate durations
+  // Build a map of slot datetime -> duration
+  const slotDurations = new Map<string, number>();
+  
+  for (const serviceCode of serviceCodes) {
+    try {
+      const slots = await getExternalSearchSlots(doctorCode, serviceCode, fromDate, toDate);
+      for (const slot of slots) {
+        if (slot.SlotDateTime && slot.Duration) {
+          const key = minuteKey(slot.SlotDateTime);
+          if (key) {
+            const durationMinutes = parseSlotDuration(slot.Duration);
+            slotDurations.set(key, durationMinutes);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[getDoctorAppointmentsForWindow] Failed to fetch slots for service ${serviceCode}:`, err);
+    }
+  }
+
+  console.log(`[getDoctorAppointmentsForWindow] Built duration map with ${slotDurations.size} slot entries`);
+
+  // Step 3: Normalize appointments with correct durations from slots
   const appointments: ComparableAppointment[] = [];
   
-  for (const apt of data) {
+  for (const apt of appointmentsData) {
     // Skip cancelled/rescheduled appointments - they are not valid candidates
     const status = apt.status?.toUpperCase();
     if (status === 'ANNULLED' || status === 'RESCHEDULED') {
@@ -854,8 +920,9 @@ export async function getDoctorAppointmentsForWindow(
     const startDateTime = apt.appointmentHour || apt.scheduleDate || apt.appointmentDate || '';
     if (!startDateTime) continue;
 
-    const durationStr = apt.duration || '00:30:00'; // Default 30 min if not specified
-    const durationMinutes = parseDurationToMinutes(durationStr);
+    // Get duration from slot map, fallback to 30 min
+    const key = minuteKey(startDateTime);
+    const durationMinutes = key ? (slotDurations.get(key) || 30) : 30;
     const endDateTime = computeEndDateTime(startDateTime, durationMinutes);
 
     appointments.push({
@@ -871,6 +938,8 @@ export async function getDoctorAppointmentsForWindow(
       status: apt.status,
     });
   }
+
+  console.log(`[getDoctorAppointmentsForWindow] Returning ${appointments.length} appointments with correct durations`);
 
   return appointments;
 }
@@ -975,6 +1044,7 @@ function createBlockFromAppointments(
     startDateTime: first.startDateTime,
     endDateTime: last.endDateTime,
     durationMinutes: totalDuration,
+    slotCount: appointments.length, // Number of consecutive slots
     appointments,
   };
 }
