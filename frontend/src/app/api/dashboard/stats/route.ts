@@ -7,13 +7,14 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/dashboard/stats
- * 
+ *
  * Fetches dashboard statistics - calculates occupation in real-time from Glintt.
- * 
+ *
  * Query params:
  * - doctorCode (optional): Filter by specific doctor code
  * - all (optional): If "true", returns stats from pre-computed table (admin only)
- * 
+ * - clinic (optional): Filter by clinic name (only works with all=true)
+ *
  * Returns:
  * - Real-time occupation stats if doctorCode is provided
  * - Pre-computed stats if all=true (admin only, from admin_dashboard_stats table)
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const doctorCode = searchParams.get('doctorCode');
     const fetchAll = searchParams.get('all') === 'true';
+    const clinicFilter = searchParams.get('clinic');
 
     // Create Supabase client for auth
     const supabase = createServerClient(
@@ -68,11 +70,18 @@ export async function GET(request: NextRequest) {
     // If requesting all stats (admin dashboard overview)
     if (fetchAll && isAdmin) {
       // Return pre-computed stats from admin_dashboard_stats table
-      const { data: stats, error } = await serviceClient
+      let query = serviceClient
         .schema('appointments_app')
         .from('admin_dashboard_stats')
         .select('*')
         .order('computed_at', { ascending: false });
+
+      // Filter by clinic if specified (clinics is an array, use 'contains')
+      if (clinicFilter) {
+        query = query.contains('clinics', [clinicFilter]);
+      }
+
+      const { data: stats, error } = await query;
 
       if (error) {
         console.error('[api/dashboard/stats] Query error:', error);
@@ -93,6 +102,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         stats: Array.from(latestByDoctor.values()),
         isAdmin,
+        filters: { clinic: clinicFilter },
       });
     }
 

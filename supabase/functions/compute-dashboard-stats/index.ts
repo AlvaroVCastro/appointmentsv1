@@ -1,5 +1,8 @@
 // Supabase Edge Function: compute-dashboard-stats
-// Computes daily occupation percentages and reschedule counts for all doctors
+// Computes occupation percentages and reschedule counts for all doctors
+// - clinics[] and service_codes[] are aggregated from LAST 30 DAYS
+// - occupation_percentage is calculated for TODAY only
+// Also computes aggregated stats per clinic
 // Scheduled to run at 7:00 AM via pg_cron
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -32,11 +35,24 @@ interface AuthToken {
 
 interface Slot {
   SlotDateTime: string;
+  ServiceCode?: string;
   OccupationReason?: {
     Code: string;
     Description: string;
   };
   Occupation?: boolean;
+}
+
+interface Appointment {
+  appointmentId: string;
+  appointmentHour: string;
+  doctorCode: string;
+  serviceCode: string;
+  performingService?: {
+    code: string;
+    description: string;
+  };
+  status: string;
 }
 
 interface DoctorProfile {
@@ -52,6 +68,21 @@ interface DashboardStats {
   total_slots: number;
   occupied_slots: number;
   total_reschedules_30d: number;
+  clinics: string[];
+  service_codes: string[];
+}
+
+interface ClinicStats {
+  clinic: string;
+  total_doctors: number;
+  avg_occupation_percentage: number;
+  total_reschedules_30d: number;
+  monthly_occupation_percentage: number;
+  total_slots: number;
+  total_occupied_slots: number;
+  monthly_total_slots: number;
+  monthly_occupied_slots: number;
+  days_counted: number;
 }
 
 // Get Glintt auth token
@@ -80,6 +111,45 @@ async function getGlinttAuthToken(): Promise<string> {
 
   const data: AuthToken = await response.json();
   return data.access_token;
+}
+
+// Get appointments for a doctor for a specific day
+async function getAppointmentsForDay(
+  doctorCode: string,
+  date: string,
+  token: string
+): Promise<Appointment[]> {
+  const appointmentsUrl = `${GLINTT_URL}/Hms.OutPatient.Api/hms/outpatient/Appointment`;
+  const params = new URLSearchParams({
+    beginDate: `${date}T00:00:00`,
+    endDate: `${date}T23:59:59`,
+    doctorCode: doctorCode,
+    status: "SCHEDULED",
+    medicalAct: "1",
+    skip: "0",
+    take: "500",
+  });
+
+  try {
+    const response = await fetch(`${appointmentsUrl}?${params.toString()}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      console.warn(`[getAppointmentsForDay] Failed for doctor=${doctorCode}, date=${date}: ${response.statusText}`);
+      return [];
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error(`[getAppointmentsForDay] Error for doctor=${doctorCode}, date=${date}:`, err);
+    return [];
+  }
 }
 
 // Get slots for a single day from Glintt
@@ -180,27 +250,97 @@ async function getServiceCodesForDoctor(doctorCode: string, token: string): Prom
   }
 }
 
-// Calculate occupation percentage for a doctor
+// Extract clinic name from performingService.description
+// Format: "Coimbra - Dep. Prótese Fixa" -> "Coimbra"
+function extractClinicFromDescription(description: string | undefined): string | null {
+  if (!description) return null;
+  const parts = description.split(" - ");
+  return parts[0]?.trim() || null;
+}
+
+// Generate array of dates for last N days (including today)
+function getLastNDays(n: number): string[] {
+  const dates: string[] = [];
+  const today = new Date();
+
+  for (let i = 0; i < n; i++) {
+    const date = new Date(today);
+    date.setDate(today.getDate() - i);
+    dates.push(date.toISOString().split("T")[0]);
+  }
+
+  return dates;
+}
+
+// Calculate occupation percentage for a doctor and extract clinics from last 30 days
 async function calculateOccupationForDoctor(
   doctorCode: string,
   token: string
-): Promise<{ occupationPercentage: number; totalSlots: number; occupiedSlots: number }> {
+): Promise<{
+  occupationPercentage: number;
+  totalSlots: number;
+  occupiedSlots: number;
+  serviceCodes: string[];
+  clinics: string[];
+}> {
   // Get service codes for this doctor
   const serviceCodes = await getServiceCodesForDoctor(doctorCode, token);
 
   if (serviceCodes.length === 0) {
     console.warn(`[calculateOccupation] No service codes found for doctor ${doctorCode}`);
-    return { occupationPercentage: 0, totalSlots: 0, occupiedSlots: 0 };
+    return { occupationPercentage: 0, totalSlots: 0, occupiedSlots: 0, serviceCodes: [], clinics: [] };
   }
 
-  // Get today's date
-  const today = new Date();
-  const dateStr = today.toISOString().split("T")[0];
+  // Get dates for last 30 days
+  const last30Days = getLastNDays(30);
+  const todayStr = last30Days[0]; // First element is today
 
-  // Fetch slots for today for each service code
+  // ============================================================
+  // PART 1: Get clinics from appointments of LAST 30 DAYS
+  // ============================================================
+  const clinicsSet = new Set<string>();
+  const serviceCodesFromAppointments = new Set<string>();
+
+  console.log(`[calculateOccupation] Doctor ${doctorCode}: Fetching appointments for last 30 days...`);
+
+  // Fetch appointments for each day (with some parallelization)
+  // Process in batches of 5 days to avoid overwhelming the API
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < last30Days.length; i += BATCH_SIZE) {
+    const batch = last30Days.slice(i, i + BATCH_SIZE);
+
+    const batchPromises = batch.map(date => getAppointmentsForDay(doctorCode, date, token));
+    const batchResults = await Promise.all(batchPromises);
+
+    for (const appointments of batchResults) {
+      for (const apt of appointments) {
+        // Extract clinic from performingService.description
+        const clinic = extractClinicFromDescription(apt.performingService?.description);
+        if (clinic) {
+          clinicsSet.add(clinic);
+        }
+        // Also collect service codes from appointments
+        if (apt.serviceCode) {
+          serviceCodesFromAppointments.add(apt.serviceCode);
+        }
+      }
+    }
+
+    // Small delay between batches to avoid rate limiting
+    if (i + BATCH_SIZE < last30Days.length) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
+
+  // Merge service codes from HR API and from appointments
+  const allServiceCodes = [...new Set([...serviceCodes, ...serviceCodesFromAppointments])];
+
+  // ============================================================
+  // PART 2: Get slots for TODAY only (for occupation calculation)
+  // ============================================================
   let allSlots: Slot[] = [];
   for (const serviceCode of serviceCodes) {
-    const slots = await getSlotsForDay(doctorCode, serviceCode, dateStr, token);
+    const slots = await getSlotsForDay(doctorCode, serviceCode, todayStr, token);
     allSlots = allSlots.concat(slots);
   }
 
@@ -234,13 +374,15 @@ async function calculateOccupationForDoctor(
   const occupationPercentage = totalSlots > 0 ? (occupiedSlots / totalSlots) * 100 : 0;
 
   console.log(
-    `[calculateOccupation] Doctor ${doctorCode}: ${occupiedSlots}/${totalSlots} = ${occupationPercentage.toFixed(2)}%`
+    `[calculateOccupation] Doctor ${doctorCode}: ${occupiedSlots}/${totalSlots} = ${occupationPercentage.toFixed(2)}% (today), clinics (30d): [${Array.from(clinicsSet).join(", ")}]`
   );
 
   return {
     occupationPercentage: Math.round(occupationPercentage * 100) / 100,
     totalSlots,
     occupiedSlots,
+    serviceCodes: allServiceCodes,
+    clinics: Array.from(clinicsSet),
   };
 }
 
@@ -266,6 +408,78 @@ async function countReschedulesLast30Days(
   }
 
   return count || 0;
+}
+
+// Calculate and save clinic stats
+// Note: A doctor appears in a clinic's stats if they worked there in the last 30 days
+// (based on clinics[] array which aggregates last 30 days)
+async function computeAndSaveClinicStats(
+  supabase: ReturnType<typeof createClient>,
+  doctorStats: DashboardStats[]
+): Promise<void> {
+  console.log("[computeClinicStats] Computing clinic stats (based on 30-day clinic history)...");
+
+  // Group doctors by clinic (a doctor can appear in multiple clinics)
+  const clinicDoctorsMap = new Map<string, DashboardStats[]>();
+
+  for (const stat of doctorStats) {
+    for (const clinic of stat.clinics) {
+      if (!clinicDoctorsMap.has(clinic)) {
+        clinicDoctorsMap.set(clinic, []);
+      }
+      clinicDoctorsMap.get(clinic)!.push(stat);
+    }
+  }
+
+  const today = new Date().toISOString().split("T")[0];
+
+  // Calculate stats for each clinic
+  for (const [clinic, doctors] of clinicDoctorsMap) {
+    const totalDoctors = doctors.length;
+    const avgOccupation = doctors.reduce((sum, d) => sum + d.occupation_percentage, 0) / totalDoctors;
+    const totalReschedules = doctors.reduce((sum, d) => sum + d.total_reschedules_30d, 0);
+    const totalSlots = doctors.reduce((sum, d) => sum + d.total_slots, 0);
+    const totalOccupiedSlots = doctors.reduce((sum, d) => sum + d.occupied_slots, 0);
+
+    // Monthly occupation is the same as daily average for now
+    // (occupation_percentage in doctor stats is today's occupation)
+    const monthlyOccupation = avgOccupation;
+
+    const clinicStat: ClinicStats = {
+      clinic,
+      total_doctors: totalDoctors,
+      avg_occupation_percentage: Math.round(avgOccupation * 100) / 100,
+      total_reschedules_30d: totalReschedules,
+      monthly_occupation_percentage: Math.round(monthlyOccupation * 100) / 100,
+      total_slots: totalSlots,
+      total_occupied_slots: totalOccupiedSlots,
+      monthly_total_slots: totalSlots,
+      monthly_occupied_slots: totalOccupiedSlots,
+      days_counted: 30, // We're using 30-day window for clinics
+    };
+
+    console.log(`[computeClinicStats] ${clinic}: ${totalDoctors} doctors (30d), ${avgOccupation.toFixed(2)}% avg occupation`);
+
+    // Delete existing record for today (if any) then insert new one
+    await supabase
+      .schema("appointments_app")
+      .from("clinic_stats")
+      .delete()
+      .eq("clinic", clinic)
+      .gte("computed_at", `${today}T00:00:00`)
+      .lt("computed_at", `${today}T23:59:59`);
+
+    const { error: insertError } = await supabase
+      .schema("appointments_app")
+      .from("clinic_stats")
+      .insert(clinicStat);
+
+    if (insertError) {
+      console.error(`[computeClinicStats] Insert error for ${clinic}:`, insertError);
+    }
+  }
+
+  console.log(`[computeClinicStats] Completed. Processed ${clinicDoctorsMap.size} clinics.`);
 }
 
 // Main handler
@@ -319,36 +533,56 @@ serve(async (req: Request) => {
     // Get Glintt auth token
     const glinttToken = await getGlinttAuthToken();
 
-    // Process each doctor
+    // Process doctors in parallel batches
     const stats: DashboardStats[] = [];
+    const DOCTOR_BATCH_SIZE = 10;
 
-    for (const doctor of doctors as DoctorProfile[]) {
+    // Helper function to process a single doctor
+    async function processDoctor(doctor: DoctorProfile): Promise<DashboardStats | null> {
       try {
         console.log(`[compute-dashboard-stats] Processing doctor: ${doctor.doctor_code}`);
 
-        // Calculate occupation
-        const { occupationPercentage, totalSlots, occupiedSlots } = await calculateOccupationForDoctor(
-          doctor.doctor_code,
-          glinttToken
-        );
+        // Calculate occupation and get clinics/service codes
+        const { occupationPercentage, totalSlots, occupiedSlots, serviceCodes, clinics } =
+          await calculateOccupationForDoctor(doctor.doctor_code, glinttToken);
 
         // Count reschedules
         const rescheduleCount = await countReschedulesLast30Days(supabase, doctor.doctor_code);
 
-        stats.push({
+        return {
           doctor_code: doctor.doctor_code,
           doctor_name: doctor.full_name,
           occupation_percentage: occupationPercentage,
           total_slots: totalSlots,
           occupied_slots: occupiedSlots,
           total_reschedules_30d: rescheduleCount,
-        });
-
-        // Small delay to avoid rate limiting
-        await new Promise((resolve) => setTimeout(resolve, 100));
+          clinics: clinics,
+          service_codes: serviceCodes,
+        };
       } catch (err) {
         console.error(`[compute-dashboard-stats] Error processing doctor ${doctor.doctor_code}:`, err);
-        // Continue with next doctor
+        return null;
+      }
+    }
+
+    // Process doctors in parallel batches of 10
+    const doctorList = doctors as DoctorProfile[];
+    for (let i = 0; i < doctorList.length; i += DOCTOR_BATCH_SIZE) {
+      const batch = doctorList.slice(i, i + DOCTOR_BATCH_SIZE);
+      console.log(`[compute-dashboard-stats] Processing batch ${Math.floor(i / DOCTOR_BATCH_SIZE) + 1}/${Math.ceil(doctorList.length / DOCTOR_BATCH_SIZE)} (${batch.length} doctors)`);
+
+      const batchResults = await Promise.all(batch.map(doctor => processDoctor(doctor)));
+
+      // Collect successful results
+      for (const result of batchResults) {
+        if (result) {
+          stats.push(result);
+        }
+      }
+
+      // Small delay between batches to avoid rate limiting
+      if (i + DOCTOR_BATCH_SIZE < doctorList.length) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
     }
 
@@ -376,12 +610,17 @@ serve(async (req: Request) => {
           total_slots: stat.total_slots,
           occupied_slots: stat.occupied_slots,
           total_reschedules_30d: stat.total_reschedules_30d,
+          clinics: stat.clinics,
+          service_codes: stat.service_codes,
         });
 
       if (insertError) {
         console.error(`[compute-dashboard-stats] Insert error for ${stat.doctor_code}:`, insertError);
       }
     }
+
+    // Compute and save clinic stats
+    await computeAndSaveClinicStats(supabase, stats);
 
     console.log(`[compute-dashboard-stats] Completed. Processed ${stats.length} doctors.`);
 

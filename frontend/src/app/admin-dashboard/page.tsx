@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { RefreshCw, BarChart3, TrendingUp, Users, Calendar, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { DashboardFilters, FilterState, FilterOptions } from '@/components/admin/dashboard-filters';
 
 interface DashboardStats {
   id: string;
@@ -25,19 +26,56 @@ interface TopDoctor {
   reschedule_count: number;
 }
 
+interface MonthlyOccupancy {
+  occupancy_percentage: number;
+  period_start: string;
+  period_end: string;
+  total_slots: number;
+  occupied_slots: number;
+  days_counted: number;
+}
+
 export default function AdminDashboardPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [stats, setStats] = useState<DashboardStats[]>([]);
   const [topDoctors, setTopDoctors] = useState<TopDoctor[]>([]);
+  const [monthlyOccupancy, setMonthlyOccupancy] = useState<MonthlyOccupancy | null>(null);
   const [loading, setLoading] = useState(true);
+  const [monthlyLoading, setMonthlyLoading] = useState(false);
 
-  const loadData = async () => {
+  // Filter state
+  const [filters, setFilters] = useState<FilterState>({ clinic: null, doctorCode: null });
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({ clinics: [], doctors: [] });
+
+  // Load filter options on mount
+  useEffect(() => {
+    fetch('/api/dashboard/filters')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) {
+          setFilterOptions({
+            clinics: data.clinics || [],
+            doctors: data.doctors || [],
+          });
+        }
+      })
+      .catch(err => console.error('Error loading filter options:', err));
+  }, []);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
+    setMonthlyLoading(true);
     try {
+      // Build query params with filters
+      const statsParams = new URLSearchParams({ all: 'true' });
+      if (filters.clinic) {
+        statsParams.set('clinic', filters.clinic);
+      }
+
       // Check if user is admin and fetch stats
       const [statsResponse, topResponse] = await Promise.all([
-        fetch('/api/dashboard/stats?all=true'),
+        fetch(`/api/dashboard/stats?${statsParams.toString()}`),
         fetch('/api/dashboard/reschedules?top=true&limit=10&days=30'),
       ]);
 
@@ -58,6 +96,17 @@ export default function AdminDashboardPage() {
         const topData = await topResponse.json();
         setTopDoctors(topData.topDoctors || []);
       }
+
+      // Fetch monthly occupancy separately (can take longer due to many API calls)
+      fetch('/api/dashboard/occupancy?period=monthly&all=true')
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data?.occupancy) {
+            setMonthlyOccupancy(data.occupancy);
+          }
+        })
+        .catch(err => console.error('Error loading monthly occupancy:', err))
+        .finally(() => setMonthlyLoading(false));
     } catch (error) {
       console.error('Error loading admin dashboard:', error);
       toast({
@@ -68,12 +117,17 @@ export default function AdminDashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters.clinic, router, toast]);
 
   useEffect(() => {
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadData]);
+
+  // Filter stats by doctor code (client-side filter)
+  const filteredStats = useMemo(() => {
+    if (!filters.doctorCode) return stats;
+    return stats.filter(stat => stat.doctor_code === filters.doctorCode);
+  }, [stats, filters.doctorCode]);
 
   const getOccupationColor = (percentage: number) => {
     if (percentage >= 80) return 'text-emerald-600 bg-emerald-50';
@@ -81,12 +135,18 @@ export default function AdminDashboardPage() {
     return 'text-rose-600 bg-rose-50';
   };
 
-  // Calculate averages
-  const avgOccupation = stats.length > 0
-    ? stats.reduce((sum, s) => sum + (s.occupation_percentage || 0), 0) / stats.length
+  const getOccupationTextColor = (percentage: number) => {
+    if (percentage >= 80) return 'text-emerald-600';
+    if (percentage >= 50) return 'text-amber-600';
+    return 'text-rose-600';
+  };
+
+  // Calculate averages (using filtered stats)
+  const avgOccupation = filteredStats.length > 0
+    ? filteredStats.reduce((sum, s) => sum + (s.occupation_percentage || 0), 0) / filteredStats.length
     : 0;
 
-  const totalReschedules = stats.reduce((sum, s) => sum + (s.total_reschedules_30d || 0), 0);
+  const totalReschedules = filteredStats.reduce((sum, s) => sum + (s.total_reschedules_30d || 0), 0);
 
   if (loading) {
     return (
@@ -104,23 +164,33 @@ export default function AdminDashboardPage() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-7xl mx-auto space-y-6">
           {/* Header */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
-              <p className="text-slate-500 text-sm mt-1">
-                Visão geral de todos os médicos e métricas de reagendamentos
-              </p>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
+                <p className="text-slate-500 text-sm mt-1">
+                  Visão geral de todos os médicos e métricas de reagendamentos
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={loadData}
+                disabled={loading}
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                Atualizar
+              </Button>
             </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="gap-2"
-              onClick={loadData}
-              disabled={loading}
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Atualizar
-            </Button>
+
+            {/* Filters */}
+            <DashboardFilters
+              filters={filters}
+              options={filterOptions}
+              onFiltersChange={setFilters}
+              loading={loading}
+            />
           </div>
 
           {/* Summary Cards */}
@@ -130,7 +200,7 @@ export default function AdminDashboardPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm text-slate-500">Total de Médicos</p>
-                    <p className="text-3xl font-bold text-slate-900">{stats.length}</p>
+                    <p className="text-3xl font-bold text-slate-900">{filteredStats.length}</p>
                   </div>
                   <div className="h-12 w-12 rounded-full bg-cyan-50 flex items-center justify-center">
                     <Users className="h-6 w-6 text-cyan-600" />
@@ -171,10 +241,24 @@ export default function AdminDashboardPage() {
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-slate-500">Slots Ocupados Hoje</p>
-                    <p className="text-3xl font-bold text-slate-900">
-                      {stats.reduce((sum, s) => sum + (s.occupied_slots || 0), 0)}
-                    </p>
+                    <p className="text-sm text-slate-500">Ocupação Mensal</p>
+                    {monthlyLoading ? (
+                      <div className="flex items-center gap-2 mt-1">
+                        <RefreshCw className="h-4 w-4 animate-spin text-slate-400" />
+                        <span className="text-sm text-slate-400">A calcular...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <p className={`text-3xl font-bold ${monthlyOccupancy ? getOccupationTextColor(monthlyOccupancy.occupancy_percentage) : 'text-slate-400'}`}>
+                          {monthlyOccupancy ? `${monthlyOccupancy.occupancy_percentage.toFixed(1)}%` : '-'}
+                        </p>
+                        {monthlyOccupancy && (
+                          <p className="text-xs text-slate-400 mt-1">
+                            {monthlyOccupancy.days_counted} dias úteis
+                          </p>
+                        )}
+                      </>
+                    )}
                   </div>
                   <div className="h-12 w-12 rounded-full bg-amber-50 flex items-center justify-center">
                     <TrendingUp className="h-6 w-6 text-amber-600" />
@@ -197,17 +281,19 @@ export default function AdminDashboardPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                {stats.length === 0 ? (
+                {filteredStats.length === 0 ? (
                   <div className="text-center py-8">
                     <AlertCircle className="h-12 w-12 text-slate-300 mx-auto mb-4" />
                     <p className="text-slate-500">Nenhum dado disponível.</p>
                     <p className="text-sm text-slate-400 mt-1">
-                      As estatísticas são atualizadas automaticamente às 7h.
+                      {filters.clinic || filters.doctorCode
+                        ? 'Tente ajustar os filtros.'
+                        : 'As estatísticas são atualizadas automaticamente às 7h.'}
                     </p>
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                    {stats
+                    {filteredStats
                       .sort((a, b) => (b.occupation_percentage || 0) - (a.occupation_percentage || 0))
                       .map((stat) => (
                         <div

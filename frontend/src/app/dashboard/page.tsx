@@ -44,14 +44,27 @@ interface UserProfile {
   hasMultipleDoctorCodes: boolean;
 }
 
+interface WeeklyOccupancy {
+  doctor_code: string;
+  doctor_name: string | null;
+  occupancy_percentage: number;
+  period_start: string;
+  period_end: string;
+  total_slots: number;
+  occupied_slots: number;
+  days_counted: number;
+}
+
 function DashboardContent() {
   const searchParams = useSearchParams();
   const urlDoctorCode = searchParams.get('doctorCode');
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [weeklyOccupancy, setWeeklyOccupancy] = useState<WeeklyOccupancy | null>(null);
   const [reschedules, setReschedules] = useState<Reschedule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
   const [searchCode, setSearchCode] = useState(urlDoctorCode || '');
   const [currentDoctorCode, setCurrentDoctorCode] = useState<string | null>(urlDoctorCode);
 
@@ -97,6 +110,7 @@ function DashboardContent() {
 
   async function loadDashboardData(doctorCode: string) {
     setLoading(true);
+    setWeeklyLoading(true);
     try {
       const [statsResponse, reschedulesResponse] = await Promise.all([
         fetch(`/api/dashboard/stats?doctorCode=${doctorCode}`),
@@ -112,6 +126,17 @@ function DashboardContent() {
         const reschedulesData = await reschedulesResponse.json();
         setReschedules(reschedulesData.reschedules || []);
       }
+
+      // Fetch weekly occupancy separately (can take longer)
+      fetch(`/api/dashboard/occupancy?doctorCode=${doctorCode}&period=weekly`)
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data?.occupancy) {
+            setWeeklyOccupancy(data.occupancy);
+          }
+        })
+        .catch(err => console.error('Error loading weekly occupancy:', err))
+        .finally(() => setWeeklyLoading(false));
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {
@@ -286,11 +311,11 @@ function DashboardContent() {
                     <div>
                       <p className="text-sm text-slate-500">Ocupação Hoje</p>
                       <p className={`text-3xl font-bold ${stats ? getOccupationColor(stats.occupation_percentage || 0) : 'text-slate-400'}`}>
-                        {stats ? `${(stats.occupation_percentage || 0).toFixed(1)}%` : '-'}
+                        {stats ? `${stats.occupied_slots}/${stats.total_slots}` : '-'}
                       </p>
                       {stats && (
                         <p className="text-xs text-slate-400 mt-1">
-                          {stats.occupied_slots}/{stats.total_slots} slots
+                          {(stats.occupation_percentage || 0).toFixed(1)}%
                         </p>
                       )}
                     </div>
@@ -321,10 +346,24 @@ function DashboardContent() {
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm text-slate-500">Slots Totais</p>
-                      <p className="text-3xl font-bold text-cyan-600">
-                        {stats?.total_slots ?? '-'}
-                      </p>
+                      <p className="text-sm text-slate-500">Ocupação Semanal</p>
+                      {weeklyLoading ? (
+                        <div className="flex items-center gap-2 mt-1">
+                          <RefreshCw className="h-4 w-4 animate-spin text-slate-400" />
+                          <span className="text-sm text-slate-400">A calcular...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <p className={`text-3xl font-bold ${weeklyOccupancy ? getOccupationColor(weeklyOccupancy.occupancy_percentage) : 'text-slate-400'}`}>
+                            {weeklyOccupancy ? `${weeklyOccupancy.occupancy_percentage.toFixed(1)}%` : '-'}
+                          </p>
+                          {weeklyOccupancy && (
+                            <p className="text-xs text-slate-400 mt-1">
+                              {weeklyOccupancy.occupied_slots}/{weeklyOccupancy.total_slots} slots ({weeklyOccupancy.days_counted} dias)
+                            </p>
+                          )}
+                        </>
+                      )}
                     </div>
                     <div className="h-12 w-12 rounded-full bg-cyan-50 flex items-center justify-center">
                       <Calendar className="h-6 w-6 text-cyan-600" />
