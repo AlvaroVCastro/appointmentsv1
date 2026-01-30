@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -134,6 +134,18 @@ function ConfirmPageContent() {
   // Both checkboxes must be checked to enable the button
   const canConfirm = labConfirmed && clientConfirmed;
 
+  // Recalculate anticipationDays correctly: originalDate - newSlotDate (not today)
+  const correctAnticipationDays = useMemo(() => {
+    if (!slotData?.dateTime || !candidateData?.currentAppointmentDateTime) {
+      return candidateData?.anticipationDays || 0;
+    }
+    const originalDate = new Date(candidateData.currentAppointmentDateTime);
+    const newSlotDate = new Date(slotData.dateTime);
+    const diffMs = originalDate.getTime() - newSlotDate.getTime();
+    const diffDays = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+    return Math.max(0, diffDays); // Ensure non-negative
+  }, [slotData?.dateTime, candidateData?.currentAppointmentDateTime, candidateData?.anticipationDays]);
+
   // Handle confirmation
   const handleConfirm = async () => {
     if (!slotData || !candidateData || !doctorCode) {
@@ -208,10 +220,10 @@ function ConfirmPageContent() {
       // Get data from the first appointment in the block
       const originalAppointment = candidateData.appointments[0];
 
-      // Compute impact based on anticipation days
-      const impact = candidateData.anticipationDays <= 3
+      // Compute impact based on anticipation days (using corrected value)
+      const impact = correctAnticipationDays <= 3
         ? 'high'
-        : candidateData.anticipationDays <= 7
+        : correctAnticipationDays <= 7
         ? 'medium'
         : 'low';
 
@@ -225,7 +237,7 @@ function ConfirmPageContent() {
         originalMedicalActCode: originalAppointment?.medicalActCode,
         newDatetime: slotData.dateTime,
         newDurationMin: slotData.durationMinutes || 30,
-        anticipationDays: candidateData.anticipationDays,
+        anticipationDays: correctAnticipationDays,
         impact,
         notes: null,
         createdBy: currentUser?.id,  // Track who performed the reschedule
@@ -445,13 +457,13 @@ function ConfirmPageContent() {
                   {/* Anticipation badge */}
                   <div className="pt-1.5 border-t border-slate-200">
                     <div className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                      candidateData.anticipationDays <= 3
+                      correctAnticipationDays <= 3
                         ? 'bg-green-100 text-green-800'
-                        : candidateData.anticipationDays <= 7
+                        : correctAnticipationDays <= 7
                         ? 'bg-yellow-100 text-yellow-800'
                         : 'bg-slate-100 text-slate-600'
                     }`}>
-                      Antecipação de {candidateData.anticipationDays} dia{candidateData.anticipationDays !== 1 ? 's' : ''}
+                      Antecipação de {correctAnticipationDays} dia{correctAnticipationDays !== 1 ? 's' : ''}
                     </div>
                   </div>
                 </div>

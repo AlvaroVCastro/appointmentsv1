@@ -42,6 +42,18 @@ function formatAppointmentDateTime(dateTimeStr: string): { date: string; time: s
 }
 
 /**
+ * Calculates the correct anticipation days: originalDate - slotDate (not today)
+ */
+function calculateAnticipationDays(originalDateTime: string, slotDateTime: string | undefined): number {
+  if (!slotDateTime) return 0;
+  const originalDate = new Date(originalDateTime);
+  const slotDate = new Date(slotDateTime);
+  const diffMs = originalDate.getTime() - slotDate.getTime();
+  const diffDays = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+  return Math.max(0, diffDays);
+}
+
+/**
  * Displays a list of replacement candidates for an empty slot.
  * Shows ideal candidates (top 3) by default, with option to view all.
  */
@@ -89,6 +101,12 @@ export function ReplacementPatientsList({
     };
 
     // Prepare candidate data for URL
+    // Calculate correct anticipation: originalDate - slotDate (not today)
+    const correctAnticipationDays = calculateAnticipationDays(
+      candidate.currentAppointmentDateTime,
+      selectedSlot?.dateTime
+    );
+
     const candidateData = {
       blockId: candidate.blockId,
       patientId: candidate.patientId,
@@ -98,7 +116,7 @@ export function ReplacementPatientsList({
       email: candidate.email,
       currentAppointmentDateTime: candidate.currentAppointmentDateTime,
       currentDurationMinutes: candidate.currentDurationMinutes,
-      anticipationDays: candidate.anticipationDays,
+      anticipationDays: correctAnticipationDays,
       appointments: candidate.appointments.map(apt => ({
         appointmentId: apt.appointmentId,
         serviceCode: apt.serviceCode,
@@ -182,6 +200,7 @@ export function ReplacementPatientsList({
               <CandidatesList
                 candidates={allCandidates}
                 onSelectCandidate={handleSelectCandidate}
+                slotDateTime={selectedSlot?.dateTime}
               />
             </div>
           )}
@@ -225,6 +244,7 @@ export function ReplacementPatientsList({
               onSelectCandidate={handleSelectCandidate}
               highlightIdeal={showAllCandidates}
               idealBlockIds={idealCandidates.map(c => c.blockId)}
+              slotDateTime={selectedSlot?.dateTime}
             />
           </div>
 
@@ -291,11 +311,13 @@ function CandidatesList({
   onSelectCandidate,
   highlightIdeal = false,
   idealBlockIds = [],
+  slotDateTime,
 }: {
   candidates: ReplacementCandidate[];
   onSelectCandidate: (candidate: ReplacementCandidate) => void;
   highlightIdeal?: boolean;
   idealBlockIds?: string[];
+  slotDateTime?: string;
 }) {
   return (
     <>
@@ -303,6 +325,8 @@ function CandidatesList({
         const { date, time } = formatAppointmentDateTime(candidate.currentAppointmentDateTime);
         const isBlock = candidate.slotCount > 1;
         const isIdeal = highlightIdeal && idealBlockIds.includes(candidate.blockId);
+        // Calculate correct anticipation: originalDate - slotDate (not today)
+        const anticipationDays = calculateAnticipationDays(candidate.currentAppointmentDateTime, slotDateTime);
 
         return (
           <div
@@ -361,14 +385,14 @@ function CandidatesList({
                 <Badge
                   variant="secondary"
                   className={`text-xs ${
-                    candidate.anticipationDays <= 3
+                    anticipationDays <= 3
                       ? 'bg-green-100 text-green-800'
-                      : candidate.anticipationDays <= 7
+                      : anticipationDays <= 7
                       ? 'bg-yellow-100 text-yellow-800'
                       : 'bg-slate-100 text-slate-600'
                   }`}
                 >
-                  Em {candidate.anticipationDays} dia{candidate.anticipationDays !== 1 ? 's' : ''}
+                  Antecipação de {anticipationDays} dia{anticipationDays !== 1 ? 's' : ''}
                 </Badge>
               </div>
             </div>

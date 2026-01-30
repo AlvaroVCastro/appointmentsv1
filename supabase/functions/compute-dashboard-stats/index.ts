@@ -70,6 +70,11 @@ interface DashboardStats {
   total_reschedules_30d: number;
   clinics: string[];
   service_codes: string[];
+  // Monthly occupation fields
+  monthly_occupation_percentage: number;
+  monthly_total_slots: number;
+  monthly_occupied_slots: number;
+  monthly_days_counted: number;
 }
 
 interface ClinicStats {
@@ -270,6 +275,122 @@ function getLastNDays(n: number): string[] {
   }
 
   return dates;
+}
+
+// Check if a date is a weekend (Saturday or Sunday)
+function isWeekend(date: Date): boolean {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
+
+// Get business days (excluding weekends) for the last month
+// From same day last month to yesterday
+function getMonthlyBusinessDays(): string[] {
+  const dates: string[] = [];
+  const today = new Date();
+
+  // End date: yesterday
+  const endDate = new Date(today);
+  endDate.setDate(endDate.getDate() - 1);
+
+  // Start date: same day last month
+  const startDate = new Date(today);
+  startDate.setMonth(startDate.getMonth() - 1);
+
+  const current = new Date(startDate);
+  while (current <= endDate) {
+    if (!isWeekend(current)) {
+      dates.push(current.toISOString().split("T")[0]);
+    }
+    current.setDate(current.getDate() + 1);
+  }
+
+  return dates;
+}
+
+// Calculate monthly occupation for a doctor (last month, excluding weekends)
+async function calculateMonthlyOccupationForDoctor(
+  doctorCode: string,
+  serviceCodes: string[],
+  token: string
+): Promise<{
+  monthlyOccupationPercentage: number;
+  monthlyTotalSlots: number;
+  monthlyOccupiedSlots: number;
+  monthlyDaysCounted: number;
+}> {
+  if (serviceCodes.length === 0) {
+    return {
+      monthlyOccupationPercentage: 0,
+      monthlyTotalSlots: 0,
+      monthlyOccupiedSlots: 0,
+      monthlyDaysCounted: 0,
+    };
+  }
+
+  const businessDays = getMonthlyBusinessDays();
+  console.log(`[calculateMonthlyOccupation] Doctor ${doctorCode}: Calculating for ${businessDays.length} business days`);
+
+  let totalSlots = 0;
+  let occupiedSlots = 0;
+
+  // Process days in batches to avoid overwhelming the API
+  const DAY_BATCH_SIZE = 5;
+  for (let i = 0; i < businessDays.length; i += DAY_BATCH_SIZE) {
+    const dayBatch = businessDays.slice(i, i + DAY_BATCH_SIZE);
+
+    for (const day of dayBatch) {
+      let daySlots: Slot[] = [];
+
+      // Get slots for each service code
+      for (const serviceCode of serviceCodes) {
+        try {
+          const slots = await getSlotsForDay(doctorCode, serviceCode, day, token);
+          daySlots = daySlots.concat(slots);
+        } catch (err) {
+          // Skip errors for individual days/services
+        }
+      }
+
+      // Deduplicate slots by SlotDateTime
+      const uniqueSlots = new Map<string, Slot>();
+      for (const slot of daySlots) {
+        const key = slot.SlotDateTime?.slice(0, 16);
+        if (key && !uniqueSlots.has(key)) {
+          uniqueSlots.set(key, slot);
+        }
+      }
+
+      // Count occupied vs free (excluding blocked)
+      for (const slot of uniqueSlots.values()) {
+        const code = slot.OccupationReason?.Code;
+        if (code === "B") continue; // Skip blocked
+
+        totalSlots++;
+        if (code === "S" || slot.Occupation === true) {
+          occupiedSlots++;
+        }
+      }
+    }
+
+    // Small delay between batches
+    if (i + DAY_BATCH_SIZE < businessDays.length) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  }
+
+  const percentage = totalSlots > 0 ? (occupiedSlots / totalSlots) * 100 : 0;
+
+  console.log(
+    `[calculateMonthlyOccupation] Doctor ${doctorCode}: ${occupiedSlots}/${totalSlots} = ${percentage.toFixed(2)}% (monthly)`
+  );
+
+  return {
+    monthlyOccupationPercentage: Math.round(percentage * 100) / 100,
+    monthlyTotalSlots: totalSlots,
+    monthlyOccupiedSlots: occupiedSlots,
+    monthlyDaysCounted: businessDays.length,
+  };
 }
 
 // Calculate occupation percentage for a doctor and extract clinics from last 30 days
@@ -546,6 +667,10 @@ serve(async (req: Request) => {
         const { occupationPercentage, totalSlots, occupiedSlots, serviceCodes, clinics } =
           await calculateOccupationForDoctor(doctor.doctor_code, glinttToken);
 
+        // Calculate monthly occupation
+        const { monthlyOccupationPercentage, monthlyTotalSlots, monthlyOccupiedSlots, monthlyDaysCounted } =
+          await calculateMonthlyOccupationForDoctor(doctor.doctor_code, serviceCodes, glinttToken);
+
         // Count reschedules
         const rescheduleCount = await countReschedulesLast30Days(supabase, doctor.doctor_code);
 
@@ -558,6 +683,10 @@ serve(async (req: Request) => {
           total_reschedules_30d: rescheduleCount,
           clinics: clinics,
           service_codes: serviceCodes,
+          monthly_occupation_percentage: monthlyOccupationPercentage,
+          monthly_total_slots: monthlyTotalSlots,
+          monthly_occupied_slots: monthlyOccupiedSlots,
+          monthly_days_counted: monthlyDaysCounted,
         };
       } catch (err) {
         console.error(`[compute-dashboard-stats] Error processing doctor ${doctor.doctor_code}:`, err);
@@ -612,6 +741,10 @@ serve(async (req: Request) => {
           total_reschedules_30d: stat.total_reschedules_30d,
           clinics: stat.clinics,
           service_codes: stat.service_codes,
+          monthly_occupation_percentage: stat.monthly_occupation_percentage,
+          monthly_total_slots: stat.monthly_total_slots,
+          monthly_occupied_slots: stat.monthly_occupied_slots,
+          monthly_days_counted: stat.monthly_days_counted,
         });
 
       if (insertError) {

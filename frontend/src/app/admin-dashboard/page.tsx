@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, BarChart3, TrendingUp, Users, Calendar, AlertCircle } from 'lucide-react';
+import { RefreshCw, BarChart3, TrendingUp, Users, Calendar, AlertCircle, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { DashboardFilters, FilterState, FilterOptions } from '@/components/admin/dashboard-filters';
+import { exportDoctorsToExcel } from '@/lib/export-utils';
 
 interface DashboardStats {
   id: string;
@@ -18,6 +19,11 @@ interface DashboardStats {
   occupied_slots: number;
   total_reschedules_30d: number;
   computed_at: string;
+  // Monthly occupation fields
+  monthly_occupation_percentage: number | null;
+  monthly_total_slots: number | null;
+  monthly_occupied_slots: number | null;
+  monthly_days_counted: number | null;
 }
 
 interface TopDoctor {
@@ -172,16 +178,28 @@ export default function AdminDashboardPage() {
                   Visão geral de todos os médicos e métricas de reagendamentos
                 </p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={loadData}
-                disabled={loading}
-              >
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                Atualizar
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => exportDoctorsToExcel(filteredStats)}
+                  disabled={loading || filteredStats.length === 0}
+                >
+                  <Download className="h-4 w-4" />
+                  Exportar Dados
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={loadData}
+                  disabled={loading}
+                >
+                  <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                  Atualizar
+                </Button>
+              </div>
             </div>
 
             {/* Filters */}
